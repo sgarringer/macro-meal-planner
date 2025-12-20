@@ -1,0 +1,79 @@
+# --- General ---
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+debug.log
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Build outputs & caches (frontend/backend)
+dist/
+build/
+out/
+.tmp/
+tmp/
+.temp/
+.cache/
+.parcel-cache/
+.vite/
+.turbo/
+.next/
+.nuxt/
+.svelte-kit/
+
+# Dependencies
+node_modules/
+
+# TypeScript
+*.tsbuildinfo
+
+# Editor/IDE
+.vscode/
+.idea/
+*.iml
+.eslintcache
+
+# Environment files
+.env
+.env.*
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+
+# Uploaded assets
+uploads/
+!uploads/.gitkeep
+
+# Misc private keys
+*.pem
+*.key
+
+# Framework-specific (optional safety)
+.vercel/
+.netlify/
+
+# Allow lockfiles (DO NOT ignore)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml

@@ -1,93 +1,214 @@
-# macro-meal-planner
+# Macro Meal Planner - AI-Powered Nutrition Tracking
 
+A comprehensive meal planning application with AI-powered food analysis and macro tracking. Built with a React frontend and Node.js/Express backend.
 
+## 🚀 Live Demo
 
-## Getting started
+- **Frontend**: https://5173-0349465a-0368-47c6-96df-7880a9fbcd60.proxy.daytona.works
+- **Backend API**: https://3001-0349465a-0368-47c6-96df-7880a9fbcd60.proxy.daytona.works
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## 🎯 Features Implemented
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+### ✅ Phase 1: Backend Foundation
+- **Express.js API Server** with comprehensive REST endpoints
+- **SQLite Database** with proper schema for users, meals, foods, and meal plans
+- **JWT Authentication** with secure password hashing
+- **Database Initialization** with sample foods and admin user
+- **Environment Configuration** with proper security practices
 
-## Add your files
+### ✅ Phase 2: Frontend Foundation  
+- **React + Vite** setup with modern tooling
+- **Responsive Design** with Tailwind CSS (mobile-first approach)
+- **Dark/Light Theme** with system preference detection
+- **Authentication System** with context-based state management
+- **Routing & Navigation** with React Router
+- **UI Component Library** with reusable components
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+### ✅ Phase 3: Core User Management
+- **User Registration** with form validation
+- **Login/Logout** with JWT token management
+- **Password Reset** (console-based temporary passwords)
+- **Session Management** with automatic token refresh
+- **User Profile** with customizable preferences
+
+## 🛠️ Tech Stack
+
+### Backend
+- **Node.js** + **Express.js** - Server framework
+- **SQLite3** - Database
+- **bcryptjs** - Password hashing
+- **jsonwebtoken** - Authentication
+- **cors** - Cross-origin resource sharing
+- **helmet** - Security headers
+
+### Frontend
+- **React 18** - UI framework
+- **Vite** - Build tool
+- **React Router** - Navigation
+- **Tailwind CSS** - Styling
+- **Axios** - HTTP client
+- **React Context** - State management
+
+## 📱 Responsive Design
+
+The application features a fully responsive design:
+- **Mobile**: Touch-optimized interface with drawer navigation
+- **Tablet**: Adaptive layouts with gesture support
+- **Desktop**: Full-featured interface with sidebar navigation
+
+## 🎨 Theme System
+
+- **Light/Dark modes** with smooth transitions
+- **System preference detection** (auto mode)
+- **Persistent theme storage** in localStorage
+- **Accessible color contrasts** meeting WCAG standards
+
+## 🔐 Security Features
+
+- **JWT-based authentication** with expiration
+- **Password hashing** with bcrypt
+- **CORS configuration** for cross-origin requests
+- **Rate limiting** for API endpoints
+- **Input validation** and sanitization
+- **SQL injection prevention** with parameterized queries
+
+## 🗄️ Database Schema
+
+### Users
+- Authentication and profile data
+- Role-based access control
+- Session management
+
+### Foods
+- Common foods database (shared)
+- Personal food catalog
+- Complete US nutrition label fields
+- AI estimation capabilities
+
+### Meal Plans
+- Weekly meal planning
+- Macro tracking per meal
+- Food quantity management
+- Progress visualization
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Node.js 16+ 
+- npm or yarn
+
+### Backend Setup
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+### Frontend Setup
+```bash
+cd frontend  
+npm install
+npm run dev
+```
+
+### Environment Variables
+Copy `.env.example` to `.env` and configure:
+- Database paths
+- JWT secrets
+- API endpoints
+- Theme preferences
+
+## 📄 API Endpoints
+
+### Authentication
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/login` - User login
+- `GET /api/auth/me` - Get current user
+
+### Profile
+- `GET /api/profile` - Get user profile
+- `PUT /api/profile` - Update profile
+
+### Foods
+- `GET /api/foods/common` - Get common foods
+- `GET /api/foods/user` - Get user foods
+
+### Health Check
+- `GET /health` - Server status
+
+## 🧪 Demo Accounts
+
+### Admin Account
+- **Username**: admin
+- **Password**: admin123
+
+### Test Account
+- **Username**: testuser
+- **Password**: password123
+
+## 🎯 Next Development Phases
+
+The foundation is complete and ready for advanced features:
+
+### Phase 4: Macro Goals & Meal Configuration
+- Macro goal setup interface
+- Eating window configuration
+- Meal timing and percentage allocation
+
+### Phase 5: Food Catalog System  
+- Photo analysis (OpenAI/Ollama)
+- AI estimation for produce
+- Advanced search and filtering
+
+### Phase 6: Meal Planning Interface
+- Drag-and-drop meal planning
+- Real-time macro tracking
+- Copy week functionality
+
+### Phase 7: AI Integration
+- OpenAI and Ollama support
+- Meal suggestion system
+- Nutrition optimization
+
+## 📊 Architecture
 
 ```
-cd existing_repo
-git remote add origin https://git.planetcr.net/containers/macro-meal-planner.git
-git branch -M main
-git push -uf origin main
+macro-meal-planner/
+├── backend/                 # Node.js API server
+│   ├── src/
+│   │   ├── routes/         # API endpoints
+│   │   ├── middleware/     # Auth, validation
+│   │   └── utils/          # Database helpers
+│   └── database/           # SQLite database
+├── frontend/               # React application
+│   ├── src/
+│   │   ├── components/     # UI components
+│   │   ├── contexts/       # State management
+│   │   ├── pages/          # Route components
+│   │   ├── services/       # API clients
+│   │   └── utils/          # Helper functions
+│   └── public/
+└── docs/                   # Documentation
 ```
 
-## Integrate with your tools
+## 🤝 Contributing
 
-- [ ] [Set up project integrations](https://git.planetcr.net/containers/macro-meal-planner/-/settings/integrations)
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
-## Collaborate with your team
+## 📝 License
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+This project is licensed under the ISC License.
 
-## Test and Deploy
+## 🙏 Acknowledgments
 
-Use the built-in continuous integration in GitLab.
+- Built with modern web technologies
+- Inspired by nutrition tracking best practices
+- Designed with user experience in mind
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+---
 
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+**Note**: This is a foundational implementation. The core architecture is solid and ready for the advanced features outlined in the development roadmap.
