@@ -149,7 +149,7 @@ const LinkedFoods = () => {
     } catch (error) {
       setMessage(error.response?.data?.error || 'Failed to delete linked food');
     }
-    } finally {
+    finally {
       setShowDeleteModal(false);
       setDeleteTarget(null);
     }
@@ -401,7 +401,6 @@ const LinkedFoods = () => {
                         });
                         setShowForm(true);
                       }}
-                      className="px-3 py-1 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
                       className="px-3 py-1 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
                     >
                       Edit
