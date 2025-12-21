@@ -2429,7 +2429,7 @@ app.get('/api/ai/status/:requestId', authenticateToken, (req, res) => {
 // Serve frontend build (after API routes)
 const frontendDir = path.join(__dirname, '..', 'public');
 app.use(express.static(frontendDir));
-app.get('*', (req, res, next) => {
+app.all('*', (req, res, next) => {
   if (req.path.startsWith('/api')) return next();
   const indexFile = path.join(frontendDir, 'index.html');
   return res.sendFile(indexFile, (err) => {
