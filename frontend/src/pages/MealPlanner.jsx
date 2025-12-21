@@ -185,7 +185,7 @@ const MealPlanner = () => {
   const pollRequestStatus = async (requestId, mealId) => {
     try {
       const token = localStorage.getItem('authToken');
-      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
       
       const response = await fetch(`${baseURL}/ai/status/${requestId}`, {
         headers: {
@@ -296,7 +296,7 @@ const MealPlanner = () => {
     let requestId = null;
     try {
       const token = localStorage.getItem('authToken');
-      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
       
       const response = await fetch(`${baseURL}/ai/suggest`, {
         method: 'POST',
@@ -503,7 +503,7 @@ const MealPlanner = () => {
 
     try {
       const token = localStorage.getItem('authToken');
-      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
   
       await fetch(`${baseURL}/ai/cancel/${request.requestId}`, {
         method: 'POST',
@@ -564,7 +564,7 @@ const MealPlanner = () => {
     // Trigger a new AI request with excluded foods
     try {
       const token = localStorage.getItem('authToken');
-      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+      const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
       
       const response = await fetch(`${baseURL}/ai/suggest`, {
         method: 'POST',
