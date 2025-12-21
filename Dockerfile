@@ -1,7 +1,7 @@
 # ================================
 # Stage 1: Build Frontend
 # ================================
-FROM node:20-alpine AS frontend-builder
+FROM node:24-alpine AS frontend-builder
 
 ARG VITE_API_BASE_URL=/api
 
@@ -21,7 +21,7 @@ RUN npm run build
 # ================================
 # Stage 2: Setup Backend Dependencies
 # ================================
-FROM node:20-alpine AS backend-deps
+FROM node:24-alpine AS backend-deps
 
 WORKDIR /app/backend
 
@@ -32,7 +32,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 # ================================
 # Stage 3: Runtime Image
 # ================================
-FROM node:20-alpine
+FROM node:24-alpine
 
 # Build arguments for runtime configuration
 ARG UID=6969

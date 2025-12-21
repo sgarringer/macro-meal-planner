@@ -6,6 +6,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
+const { execFile } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -132,55 +133,6 @@ db.serialize(() => {
     FOREIGN KEY (food_id) REFERENCES foods (id)
   )`);
 
-    // Add active column to existing foods table if it doesn't exist
-    db.run(`ALTER TABLE foods ADD COLUMN active BOOLEAN DEFAULT 1`, (err) => {
-      if (err && !err.message.includes('duplicate column name')) {
-        console.error('Error adding active column to foods:', err);
-      }
-    });
-
-    // Add fiber column to existing foods table if it doesn't exist
-    db.run(`ALTER TABLE foods ADD COLUMN fiber_per_serving REAL DEFAULT 0`, (err) => {
-      if (err && !err.message.includes('duplicate column name')) {
-        console.error('Error adding fiber column to foods:', err);
-      }
-    });
-
-    // Add fiber column to existing user_macro_goals table if it doesn't exist
-    db.run(`ALTER TABLE user_macro_goals ADD COLUMN fiber REAL DEFAULT 0`, (err) => {
-      if (err && !err.message.includes('duplicate column name')) {
-        console.error('Error adding fiber column to user_macro_goals:', err);
-      }
-    });
-
-    // Add track_net_carbs column to existing user_macro_goals table if it doesn't exist
-    db.run(`ALTER TABLE user_macro_goals ADD COLUMN track_net_carbs INTEGER DEFAULT 0`, (err) => {
-      if (err && !err.message.includes('duplicate column name')) {
-        console.error('Error adding track_net_carbs column to user_macro_goals:', err);
-      }
-    });
-
-    // Add openai_model column to existing ai_config table if it doesn't exist
-    db.run(`ALTER TABLE ai_config ADD COLUMN openai_model TEXT`, (err) => {
-      if (err && !err.message.includes('duplicate column name')) {
-        console.error('Error adding openai_model column to ai_config:', err);
-      }
-    });
-
-    // Add use_auto_calculation column to existing meal_calorie_allocations table if it doesn't exist
-    db.run(`ALTER TABLE meal_calorie_allocations ADD COLUMN use_auto_calculation BOOLEAN DEFAULT 1`, (err) => {
-      if (err && !err.message.includes('duplicate column name')) {
-        console.error('Error adding use_auto_calculation column to meal_calorie_allocations:', err);
-      }
-    });
-
-    // Add custom_allocations column to existing meal_calorie_allocations table if it doesn't exist
-    db.run(`ALTER TABLE meal_calorie_allocations ADD COLUMN custom_allocations TEXT`, (err) => {
-      if (err && !err.message.includes('duplicate column name')) {
-        console.error('Error adding custom_allocations column to meal_calorie_allocations:', err);
-      }
-    });
-
   // Create linked foods table
   db.run(`CREATE TABLE IF NOT EXISTS linked_foods (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -230,6 +182,73 @@ db.serialize(() => {
     FOREIGN KEY (user_id) REFERENCES users (id),
     UNIQUE(user_id)
   )`);
+
+  // Add columns to existing tables (safe no-op when already present)
+  db.run(`ALTER TABLE foods ADD COLUMN active BOOLEAN DEFAULT 1`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding active column to foods:', err);
+    }
+  });
+
+  db.run(`ALTER TABLE foods ADD COLUMN fiber_per_serving REAL DEFAULT 0`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding fiber column to foods:', err);
+    }
+  });
+
+  db.run(`ALTER TABLE user_macro_goals ADD COLUMN fiber REAL DEFAULT 0`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding fiber column to user_macro_goals:', err);
+    }
+  });
+
+  db.run(`ALTER TABLE user_macro_goals ADD COLUMN track_net_carbs INTEGER DEFAULT 0`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding track_net_carbs column to user_macro_goals:', err);
+    }
+  });
+
+  db.run(`ALTER TABLE ai_config ADD COLUMN openai_model TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding openai_model column to ai_config:', err);
+    }
+  });
+
+  db.run(`ALTER TABLE meal_calorie_allocations ADD COLUMN use_auto_calculation BOOLEAN DEFAULT 1`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding use_auto_calculation column to meal_calorie_allocations:', err);
+    }
+  });
+
+  db.run(`ALTER TABLE meal_calorie_allocations ADD COLUMN custom_allocations TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.error('Error adding custom_allocations column to meal_calorie_allocations:', err);
+    }
+  });
+
+  // Seed defaults on first run (idempotent via row counts)
+  const runSeedIfEmpty = (table, whereClause, seedScript) => {
+    const clause = whereClause || '1=1';
+    db.get(`SELECT COUNT(*) as count FROM ${table} WHERE ${clause}`, (err, row) => {
+      if (err) {
+        console.error(`Error checking ${table} for seeding:`, err);
+        return;
+      }
+      if (!row || row.count > 0) return;
+      const scriptPath = path.join(__dirname, seedScript);
+      console.log(`Seeding ${table} via ${seedScript}...`);
+      execFile('node', [scriptPath], { cwd: __dirname }, (seedErr, stdout, stderr) => {
+        if (seedErr) {
+          console.error(`Seed script ${seedScript} failed:`, seedErr, stderr);
+        } else if (stdout) {
+          console.log(stdout.trim());
+        }
+      });
+    });
+  };
+
+  runSeedIfEmpty('foods', 'is_common = 1', 'seed_common_foods.js');
+  runSeedIfEmpty('meals', '1=1', 'seed_meals.js');
 });
 
 // Middleware

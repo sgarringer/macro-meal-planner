@@ -10,7 +10,7 @@ stages:
 
 variables:
   DOCKER_DRIVER: overlay2
-  NODE_VERSION: "20.12"
+  NODE_VERSION: "24"
   SAST_EXCLUDED_PATHS: "backend/node_modules,frontend/node_modules,backend/dist,frontend/build"
   SCAN_KUBERNETES_MANIFESTS: "false"
   SAST_ANALYZER_IMAGE_PREFIX: "registry.gitlab.com/security-products"
