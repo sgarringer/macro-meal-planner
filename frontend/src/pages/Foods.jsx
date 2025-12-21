@@ -216,7 +216,7 @@ const Foods = () => {
 
   if (loading) {
     return (
-      <div className="max-w-6xl mx-auto p-6">
+      <div className="w-full max-w-none px-4 sm:px-6 lg:px-10 mx-auto">
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
         </div>
@@ -225,7 +225,7 @@ const Foods = () => {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
+    <div className="w-full max-w-none px-4 sm:px-6 lg:px-10 mx-auto">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
           Food Catalog
