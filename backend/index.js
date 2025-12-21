@@ -5,6 +5,7 @@ const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -104,6 +105,17 @@ db.serialize(() => {
     is_common BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users (id)
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS user_food_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    food_id INTEGER NOT NULL,
+    active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users (id),
+    FOREIGN KEY (food_id) REFERENCES foods (id),
+    UNIQUE(user_id, food_id)
   )`);
 
   // Create meal plans table
@@ -634,22 +646,27 @@ app.delete('/api/meals/:id', authenticateToken, (req, res) => {
 // Foods routes
 app.get('/api/foods', authenticateToken, (req, res) => {
   const { search, type } = req.query;
-  let query = 'SELECT * FROM foods WHERE (user_id = ? OR user_id IS NULL)';
-  let params = [req.user.userId];
+  let query = `
+    SELECT f.*, COALESCE(ufo.active, f.active) AS active
+    FROM foods f
+    LEFT JOIN user_food_overrides ufo ON ufo.food_id = f.id AND ufo.user_id = ?
+    WHERE (f.user_id = ? OR f.user_id IS NULL)
+  `;
+  let params = [req.user.userId, req.user.userId];
   
   if (search) {
-    query += ' AND name LIKE ?';
+    query += ' AND f.name LIKE ?';
     params.push(`%${search}%`);
   }
   
   if (type === 'user') {
-    query += ' AND user_id = ?';
+    query += ' AND f.user_id = ?';
     params.push(req.user.userId);
   } else if (type === 'common') {
-    query += ' AND user_id IS NULL';
+    query += ' AND f.user_id IS NULL';
   }
   
-  query += ' ORDER BY name';
+  query += ' ORDER BY f.name';
   
   db.all(query, params, (err, rows) => {
     if (err) {
@@ -734,26 +751,60 @@ app.put('/api/foods/:id', authenticateToken, (req, res) => {
   });
 });
 
-// Toggle food active status (user-owned foods only)
+// Toggle food active status (user-owned updates in foods, common via per-user override)
 app.put('/api/foods/:id/toggle', authenticateToken, (req, res) => {
   const { id } = req.params;
 
-  // Verify ownership
-  db.get('SELECT id, active FROM foods WHERE id = ? AND user_id = ?', [id, req.user.userId], (err, food) => {
+  db.get('SELECT id, user_id, active, is_common FROM foods WHERE id = ?', [id], (err, food) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
     if (!food) {
-      return res.status(404).json({ error: 'Food not found or you do not have permission to edit it' });
+      return res.status(404).json({ error: 'Food not found' });
     }
 
-    const newActive = food.active ? 0 : 1;
-    db.run('UPDATE foods SET active = ? WHERE id = ? AND user_id = ?', [newActive, id, req.user.userId], function(updateErr) {
-      if (updateErr) {
-        return res.status(500).json({ error: 'Failed to update food status' });
-      }
-      res.json({ message: 'Food status updated successfully', active: !!newActive });
-    });
+    const isOwner = food.user_id === req.user.userId;
+    const isCommon = food.user_id === null || food.is_common;
+
+    // User-owned: flip directly on foods table
+    if (isOwner) {
+      const newActive = food.active ? 0 : 1;
+      db.run('UPDATE foods SET active = ? WHERE id = ? AND user_id = ?', [newActive, id, req.user.userId], function(updateErr) {
+        if (updateErr) {
+          return res.status(500).json({ error: 'Failed to update food status' });
+        }
+        return res.json({ message: 'Food status updated successfully', active: !!newActive });
+      });
+      return;
+    }
+
+    // Common food: upsert per-user override
+    if (isCommon) {
+      db.get('SELECT id, active FROM user_food_overrides WHERE user_id = ? AND food_id = ?', [req.user.userId, id], (ovErr, override) => {
+        if (ovErr) {
+          return res.status(500).json({ error: 'Database error' });
+        }
+
+        const effectiveActive = override ? override.active : (food.active ?? 1);
+        const newActive = effectiveActive ? 0 : 1;
+        const upsertSql = `
+          INSERT INTO user_food_overrides (user_id, food_id, active)
+          VALUES (?, ?, ?)
+          ON CONFLICT(user_id, food_id) DO UPDATE SET active = excluded.active, created_at = CURRENT_TIMESTAMP
+        `;
+
+        db.run(upsertSql, [req.user.userId, id, newActive], function(upsertErr) {
+          if (upsertErr) {
+            return res.status(500).json({ error: 'Failed to update food status' });
+          }
+          return res.json({ message: 'Food status updated successfully', active: !!newActive });
+        });
+      });
+      return;
+    }
+
+    // Food belongs to another user
+    return res.status(403).json({ error: 'You do not have permission to edit this food' });
   });
 });
 
@@ -1416,8 +1467,14 @@ app.post('/api/ai/suggest', authenticateToken, (req, res) => {
             [req.user.userId], (err, rows) => resolve(rows || []));
         }),
         new Promise(resolve => {
-          db.all('SELECT * FROM foods WHERE user_id = ? OR user_id IS NULL LIMIT 200', 
-            [req.user.userId], (err, rows) => resolve(rows || []));
+          db.all(`
+            SELECT f.*, COALESCE(ufo.active, f.active) AS active
+            FROM foods f
+            LEFT JOIN user_food_overrides ufo ON ufo.food_id = f.id AND ufo.user_id = ?
+            WHERE (f.user_id = ? OR f.user_id IS NULL)
+              AND COALESCE(ufo.active, f.active) = 1
+            LIMIT 200
+          `, [req.user.userId, req.user.userId], (err, rows) => resolve(rows || []));
         }),
         new Promise(resolve => {
           db.all(`SELECT lf.id, lf.name, 
@@ -2369,7 +2426,18 @@ app.get('/api/ai/status/:requestId', authenticateToken, (req, res) => {
 //     }
 //   });
 // 
-  // 404 handler
+// Serve frontend build (after API routes)
+const frontendDir = path.join(__dirname, '..', 'public');
+app.use(express.static(frontendDir));
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  const indexFile = path.join(frontendDir, 'index.html');
+  return res.sendFile(indexFile, (err) => {
+    if (err) next();
+  });
+});
+
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
