@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
+import MealCalorieAllocation from '../components/MealCalorieAllocation';
 
 const Meals = () => {
   const { user } = useAuth();
   const [meals, setMeals] = useState([]);
+  const [macroGoals, setMacroGoals] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editingMeal, setEditingMeal] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -30,15 +32,26 @@ const Meals = () => {
 
   useEffect(() => {
     fetchMeals();
+    fetchMacroGoals();
   }, []);
+
+  const fetchMacroGoals = async () => {
+    try {
+      const response = await api.get('/macro-goals');
+      setMacroGoals(response);
+    } catch (error) {
+      console.error('Error fetching macro goals:', error);
+    }
+  };
 
   const fetchMeals = async () => {
     try {
       const response = await api.get('/meals');
-      setMeals(response.data);
+      setMeals(response || []);
     } catch (error) {
       console.error('Error fetching meals:', error);
       setMessage('Failed to fetch meals');
+      setMeals([]);
     } finally {
       setLoading(false);
     }
@@ -159,6 +172,9 @@ const Meals = () => {
           {message}
         </div>
       )}
+
+      {/* Meal Calorie Allocation */}
+      {macroGoals && <MealCalorieAllocation macroGoals={macroGoals} meals={meals} />}
 
       {/* Form Modal */}
       {showForm && (

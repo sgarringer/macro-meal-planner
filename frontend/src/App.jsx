@@ -12,6 +12,7 @@ import Foods from './pages/Foods';
 import MealPlanner from './pages/MealPlanner';
 import LinkedFoods from './pages/LinkedFoods';
 import AIConfig from './pages/AIConfig';
+import ExportData from './pages/ExportData';
 
 // Protected route component
 const ProtectedRoute = ({ children }) => {
@@ -58,6 +59,7 @@ function App() {
                 <Route path="meal-planner" element={<MealPlanner />} />
                 <Route path="linked-foods" element={<LinkedFoods />} />
                 <Route path="ai-config" element={<AIConfig />} />
+                <Route path="export-data" element={<ExportData />} />
               </Route>
               
               {/* Catch all route */}

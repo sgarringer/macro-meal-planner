@@ -7,6 +7,7 @@ const AIConfig = () => {
   const [config, setConfig] = useState({
     openai_enabled: false,
     openai_api_key: '',
+    openai_model: '',
     ollama_enabled: false,
     ollama_endpoint: 'http://localhost:11434',
     ollama_model: '',
@@ -15,7 +16,7 @@ const AIConfig = () => {
   const [models, setModels] = useState({ openai: [], ollama: [] });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testingConnection, setTestingConnection] = useState(null);
+  const [refreshing, setRefreshing] = useState(null);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -26,6 +27,10 @@ const AIConfig = () => {
     try {
       const response = await api.get('/ai-config');
       setConfig(response);
+      // Automatically fetch models if services are already enabled
+      if (response.openai_enabled || response.ollama_enabled) {
+        await fetchModels();
+      }
     } catch (error) {
       console.error('Error fetching AI config:', error);
       setMessage('Failed to fetch AI configuration');
@@ -38,9 +43,11 @@ const AIConfig = () => {
     try {
       const response = await api.get('/ai-models');
       setModels(response);
+      return response;
     } catch (error) {
       console.error('Error fetching models:', error);
       setMessage('Failed to fetch AI models');
+      return null;
     }
   };
 
@@ -60,7 +67,6 @@ const AIConfig = () => {
     try {
       await api.post('/ai-config', config);
       setMessage('AI configuration saved successfully');
-      await fetchModels(); // Refresh models after saving
     } catch (error) {
       setMessage(error.response?.data?.error || 'Failed to save AI configuration');
     } finally {
@@ -68,32 +74,19 @@ const AIConfig = () => {
     }
   };
 
-  const testConnection = async (service) => {
-    setTestingConnection(service);
+  const refreshModels = async (service) => {
+    setRefreshing(service);
+    setMessage('');
     try {
-      const testConfig = { ...config };
-      if (service === 'openai') {
-        testConfig.openai_enabled = true;
-      } else {
-        testConfig.ollama_enabled = true;
+      const modelsResponse = await fetchModels();
+      if (modelsResponse) {
+        const count = service === 'openai' ? modelsResponse.openai.length : modelsResponse.ollama.length;
+        setMessage(`${count} ${service} models found.`);
       }
-
-      await api.post('/ai-config', testConfig);
-      const modelsResponse = await api.get('/ai-models');
-      
-      if (service === 'openai' && modelsResponse.openai.length > 0) {
-        setMessage('OpenAI connection successful! Models found.');
-      } else if (service === 'ollama' && modelsResponse.ollama.length > 0) {
-        setMessage('Ollama connection successful! Models found.');
-      } else {
-        setMessage(`${service} connected but no models found.`);
-      }
-      
-      setModels(modelsResponse);
     } catch (error) {
-      setMessage(`${service} connection failed: ${error.response?.data?.error || error.message}`);
+      setMessage(`Failed to refresh ${service} models`);
     } finally {
-      setTestingConnection(null);
+      setRefreshing(null);
     }
   };
 
@@ -124,37 +117,26 @@ const AIConfig = () => {
       <form onSubmit={handleSubmit} className="space-y-8">
         {/* OpenAI Configuration */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-            OpenAI Configuration
-          </h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+              OpenAI Configuration
+            </h2>
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                name="openai_enabled"
+                checked={config.openai_enabled}
+                onChange={handleInputChange}
+                className="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">Enable OpenAI</span>
+            </label>
+          </div>
           
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  name="openai_enabled"
-                  checked={config.openai_enabled}
-                  onChange={handleInputChange}
-                  className="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <span className="text-gray-700 dark:text-gray-300">Enable OpenAI</span>
-              </label>
-              <button
-                type="button"
-                onClick={() => testConnection('openai')}
-                disabled={testingConnection === 'openai' || !config.openai_api_key}
-                className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md 
-                         hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
-                         transition-colors duration-200"
-              >
-                {testingConnection === 'openai' ? 'Testing...' : 'Test Connection'}
-              </button>
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                OpenAI API Key
+                API Key
               </label>
               <input
                 type="password"
@@ -162,37 +144,50 @@ const AIConfig = () => {
                 value={config.openai_api_key}
                 onChange={handleInputChange}
                 placeholder="sk-..."
+                disabled={!config.openai_enabled}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
                          bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                         focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                         focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                         disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Your API key will be encrypted and stored securely
               </p>
             </div>
 
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => refreshModels('openai')}
+                disabled={refreshing === 'openai' || !config.openai_enabled || !config.openai_api_key}
+                className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md 
+                         hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
+                         transition-colors duration-200"
+              >
+                {refreshing === 'openai' ? 'Loading Models...' : 'Load Available Models'}
+              </button>
+            </div>
+
             {models.openai.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Available Models
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Selected Model
                 </label>
-                <div className="space-y-2">
+                <select
+                  name="openai_model"
+                  value={config.openai_model}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">-- Select a model --</option>
                   {models.openai.map(model => (
-                    <div key={model.id} className="flex items-center p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                      <input
-                        type="radio"
-                        name="preferred_service"
-                        value="openai"
-                        checked={config.preferred_service === 'openai'}
-                        onChange={handleInputChange}
-                        className="mr-2"
-                      />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">
-                        {model.name}
-                      </span>
-                    </div>
+                    <option key={model.id} value={model.id}>
+                      {model.name}
+                    </option>
                   ))}
-                </div>
+                </select>
               </div>
             )}
           </div>
@@ -200,37 +195,26 @@ const AIConfig = () => {
 
         {/* Ollama Configuration */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-            Ollama Configuration
-          </h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+              Ollama Configuration
+            </h2>
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                name="ollama_enabled"
+                checked={config.ollama_enabled}
+                onChange={handleInputChange}
+                className="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">Enable Ollama</span>
+            </label>
+          </div>
           
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  name="ollama_enabled"
-                  checked={config.ollama_enabled}
-                  onChange={handleInputChange}
-                  className="mr-2 h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <span className="text-gray-700 dark:text-gray-300">Enable Ollama</span>
-              </label>
-              <button
-                type="button"
-                onClick={() => testConnection('ollama')}
-                disabled={testingConnection === 'ollama' || !config.ollama_endpoint}
-                className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md 
-                         hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
-                         transition-colors duration-200"
-              >
-                {testingConnection === 'ollama' ? 'Testing...' : 'Test Connection'}
-              </button>
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Ollama Endpoint
+                Endpoint
               </label>
               <input
                 type="text"
@@ -238,48 +222,49 @@ const AIConfig = () => {
                 value={config.ollama_endpoint}
                 onChange={handleInputChange}
                 placeholder="http://localhost:11434"
+                disabled={!config.ollama_enabled}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
                          bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                         focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                         focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                         disabled:opacity-50 disabled:cursor-not-allowed"
               />
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => refreshModels('ollama')}
+                disabled={refreshing === 'ollama' || !config.ollama_enabled || !config.ollama_endpoint}
+                className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md 
+                         hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
+                         transition-colors duration-200"
+              >
+                {refreshing === 'ollama' ? 'Loading Models...' : 'Load Available Models'}
+              </button>
             </div>
 
             {models.ollama.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Available Models
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Selected Model
                 </label>
-                <div className="space-y-2">
+                <select
+                  name="ollama_model"
+                  value={config.ollama_model}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                           bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+                           focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">-- Select a model --</option>
                   {models.ollama.map(model => (
-                    <div key={model.id} className="flex items-center p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                      <input
-                        type="radio"
-                        name="ollama_model"
-                        value={model.id}
-                        checked={config.ollama_model === model.id}
-                        onChange={handleInputChange}
-                        className="mr-2"
-                      />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">
-                        {model.name}
-                      </span>
-                    </div>
+                    <option key={model.id} value={model.id}>
+                      {model.name}
+                    </option>
                   ))}
-                </div>
+                </select>
               </div>
             )}
-
-            <label className="flex items-center">
-              <input
-                type="radio"
-                name="preferred_service"
-                value="ollama"
-                checked={config.preferred_service === 'ollama'}
-                onChange={handleInputChange}
-                className="mr-2"
-              />
-              <span className="text-gray-700 dark:text-gray-300">Use Ollama as preferred service</span>
-            </label>
           </div>
         </div>
 
