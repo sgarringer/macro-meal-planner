@@ -150,13 +150,13 @@ const Meals = () => {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
           Meal Configuration
         </h1>
         <button
           onClick={() => setShowForm(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md 
+          className="w-full sm:w-auto bg-blue-600 text-white px-4 py-2 rounded-md 
                    hover:bg-blue-700 transition-colors duration-200"
         >
           Add Meal

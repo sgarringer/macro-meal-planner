@@ -10,6 +10,7 @@ const MealPlanner = () => {
   });
   const [meals, setMeals] = useState([]);
   const [foods, setFoods] = useState([]);
+  const [linkedFoods, setLinkedFoods] = useState([]);
   const [mealPlans, setMealPlans] = useState([]);
   const [macroGoals, setMacroGoals] = useState(null);
   const [mealCalorieTargets, setMealCalorieTargets] = useState({});
@@ -83,6 +84,24 @@ const MealPlanner = () => {
     fetchData();
   }, [currentDate]);
 
+  // Remote search against unified foods endpoint (debounced), only when modal is open
+  useEffect(() => {
+    if (!showAddFood) return;
+
+    const timeout = setTimeout(async () => {
+      try {
+        const query = foodSearch ? `?search=${encodeURIComponent(foodSearch)}` : '';
+        const res = await api.get(`/foods/all${query}`);
+        setFoods(res?.foods || []);
+        setLinkedFoods(res?.linkedFoods || []);
+      } catch (err) {
+        console.error('Food search failed:', err);
+      }
+    }, 250);
+
+    return () => clearTimeout(timeout);
+  }, [foodSearch, showAddFood]);
+
   // Persist current date to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('mealPlannerDate', currentDate);
@@ -99,16 +118,17 @@ const MealPlanner = () => {
 
   const fetchData = async () => {
     try {
-      const [mealsRes, foodsRes, mealPlansRes, macroGoalsRes, mealTargetsRes] = await Promise.all([
+      const [mealsRes, unifiedFoodsRes, mealPlansRes, macroGoalsRes, mealTargetsRes] = await Promise.all([
         api.get('/meals'),
-        api.get('/foods?type=all'),
+        api.get('/foods/all'),
         api.get(`/meal-plans?date=${currentDate}`),
         api.get('/macro-goals'),
         api.get('/meals/calorie-targets')
       ]);
 
       setMeals(mealsRes || []);
-      setFoods(foodsRes || []);
+      setFoods(unifiedFoodsRes?.foods || []);
+      setLinkedFoods(unifiedFoodsRes?.linkedFoods || []);
       setMealPlans(mealPlansRes || []);
       setMacroGoals(macroGoalsRes || null);
       setMealCalorieTargets(mealTargetsRes?.meal_targets || {});
@@ -142,6 +162,40 @@ const MealPlanner = () => {
       fetchData();
     } catch (error) {
       setMessage('Failed to add food to meal');
+    }
+  };
+
+  // Add a linked food by expanding its components into meal plan entries
+  const handleAddLinkedFoodToMeal = async (linkedFood, quantity) => {
+    if (!selectedMeal) {
+      setMessage('Please select a meal first');
+      return;
+    }
+
+    const components = Array.isArray(linkedFood?.components) ? linkedFood.components : [];
+    const validComponents = components.filter(c => c.id);
+    if (validComponents.length === 0) {
+      setMessage('Linked food has no components to add');
+      return;
+    }
+
+    try {
+      await Promise.all(validComponents.map(comp => {
+        const componentQuantity = (comp.quantity || 1) * (quantity || 1);
+        return api.post('/meal-plans', {
+          date: currentDate,
+          meal_id: selectedMeal.id,
+          food_id: comp.id,
+          quantity: componentQuantity
+        });
+      }));
+
+      setMessage('Linked food added to meal successfully');
+      setShowAddFood(false);
+      fetchData();
+    } catch (error) {
+      console.error('Failed to add linked food to meal:', error);
+      setMessage('Failed to add linked food to meal');
     }
   };
 
@@ -722,25 +776,25 @@ const MealPlanner = () => {
 
   return (
     <div className="max-w-7xl mx-auto p-6">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
           Meal Planner
         </h1>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
           <button
             onClick={() => {
               setAiContext({ type: 'daily', mealId: null });
               setShowAIModal(true);
             }}
-            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700
-                     transition-colors duration-200 flex items-center gap-2"
+            className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700
+                     transition-colors duration-200 flex items-center justify-center gap-2"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
             </svg>
             AI Daily Planner
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <button
               onClick={goToPreviousDay}
               className="px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-200"
@@ -770,7 +824,7 @@ const MealPlanner = () => {
               type="date"
               value={currentDate}
               onChange={(e) => setCurrentDate(e.target.value)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
+              className="w-full sm:w-auto flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
                        bg-white dark:bg-gray-700 text-gray-900 dark:text-white
                        focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
@@ -923,25 +977,60 @@ const MealPlanner = () => {
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
-                {foods
+                {[
+                  // Regular foods (active only)
+                  ...foods.filter(food => food.active === undefined || food.active === null || food.active === 1),
+                  // Linked foods mapped into pseudo-food entries with aggregated macros
+                  ...linkedFoods.map(lf => {
+                    const totals = (lf.components || []).reduce((acc, comp) => {
+                      const q = comp.quantity || 1;
+                      acc.calories += (comp.calories_per_serving || 0) * q;
+                      acc.protein += (comp.protein_per_serving || 0) * q;
+                      acc.carbs += (comp.carbs_per_serving || 0) * q;
+                      acc.fat += (comp.fat_per_serving || 0) * q;
+                      acc.fiber += (comp.fiber_per_serving || 0) * q;
+                      return acc;
+                    }, { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 });
+
+                    return {
+                      ...lf,
+                      is_linked_food: true,
+                      serving_size: lf.description || 'Linked food',
+                      calories_per_serving: Math.round(totals.calories),
+                      protein_per_serving: Math.round(totals.protein * 10) / 10,
+                      carbs_per_serving: Math.round(totals.carbs * 10) / 10,
+                      fat_per_serving: Math.round(totals.fat * 10) / 10,
+                      fiber_per_serving: Math.round(totals.fiber * 10) / 10,
+                    };
+                  })
+                ]
                   .filter(food => 
-                    food.name.toLowerCase().includes(foodSearch.toLowerCase()) ||
+                    (food.name || '').toLowerCase().includes(foodSearch.toLowerCase()) ||
                     (food.brand && food.brand.toLowerCase().includes(foodSearch.toLowerCase()))
                   )
                   .sort((a, b) => {
                     if (foodSortBy === 'name') {
-                      return a.name.localeCompare(b.name);
+                      return (a.name || '').localeCompare(b.name || '');
                     }
                     const aVal = a[foodSortBy] || 0;
                     const bVal = b[foodSortBy] || 0;
                     return bVal - aVal; // Descending order for numeric values
                   })
                   .map(food => (
-                  <div key={food.id} className="border border-gray-200 dark:border-gray-600 rounded-lg p-3">
-                    <h4 className="font-medium text-gray-900 dark:text-white mb-1">{food.name}</h4>
-                    {food.brand && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{food.brand}</p>
-                    )}
+                  <div key={`${food.is_linked_food ? 'linked-' : ''}${food.id}`} className="border border-gray-200 dark:border-gray-600 rounded-lg p-3">
+                    <div className="flex items-start justify-between mb-1">
+                      <div>
+                        <h4 className="font-medium text-gray-900 dark:text-white">{food.name}</h4>
+                        {food.brand && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{food.brand}</p>
+                        )}
+                      </div>
+                      {food.is_linked_food && (
+                        <span className="text-[11px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full dark:bg-purple-900 dark:text-purple-200">
+                          Linked
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-gray-600 dark:text-gray-400 mb-2 space-y-1">
                       <div className="font-medium">{food.serving_size}</div>
                       <div className="grid grid-cols-2 gap-x-2">
@@ -965,8 +1054,12 @@ const MealPlanner = () => {
                       />
                       <button
                         onClick={(e) => {
-                          const quantity = parseFloat(e.target.previousElementSibling.value);
-                          handleAddFoodToMeal(food.id, quantity);
+                          const quantity = parseFloat(e.target.previousElementSibling.value) || 1;
+                          if (food.is_linked_food) {
+                            handleAddLinkedFoodToMeal(food, quantity);
+                          } else {
+                            handleAddFoodToMeal(food.id, quantity);
+                          }
                         }}
                         className="flex-1 px-2 py-1 bg-green-600 text-white text-sm rounded
                                  hover:bg-green-700 transition-colors duration-200"
@@ -1014,7 +1107,7 @@ const MealPlanner = () => {
 
           return (
             <div key={meal.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-              <div className="flex justify-between items-center mb-4">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                     {meal.name}
@@ -1038,24 +1131,24 @@ const MealPlanner = () => {
                       Fiber: {mealTotals.fiber.toFixed(1)}g
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 w-full sm:w-auto flex-col sm:flex-row">
                     <button
                       onClick={() => {
                         setSelectedMeal(meal);
                         setShowAddFood(true);
                       }}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 
+                      className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 
                                transition-colors duration-200 whitespace-nowrap"
                     >
                       Add Food
                     </button>
                     
                     {/* AI Assist Dropdown */}
-                    <div className="relative">
+                    <div className="relative w-full sm:w-auto">
                       <button
                         onClick={() => setOpenAIDropdown(openAIDropdown === meal.id ? null : meal.id)}
-                        className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 
-                                 transition-colors duration-200 whitespace-nowrap flex items-center gap-2"
+                        className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 
+                                 transition-colors duration-200 whitespace-nowrap flex items-center justify-center gap-2"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
@@ -1111,52 +1204,93 @@ const MealPlanner = () => {
                 <div className="space-y-2">
                   {mealPlansForMeal.map(plan => {
                     const netCarbs = (plan.carbs_per_serving || 0) - (plan.fiber_per_serving || 0);
+                    const totalCals = Math.round((plan.calories_per_serving || 0) * plan.quantity);
                     return (
-                    <div 
-                      key={plan.id} 
-                      draggable
-                      onDragStart={() => setDraggedItem({ mealPlanId: plan.id, foodName: plan.food_name })}
-                      onDragEnd={() => setDraggedItem(null)}
-                      className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg cursor-move hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-                    >
-                      <div className="flex-1">
-                        <span className="font-medium text-gray-900 dark:text-white">
-                          {plan.food_name}
-                        </span>
-                        <button
-                          onClick={() => setEditingServings({ mealPlanId: plan.id, quantity: plan.quantity })}
-                          className="text-gray-600 dark:text-gray-400 ml-2 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                          title="Click to edit servings"
-                        >
-                          {plan.quantity}x {plan.serving_size}
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">
-                            {Math.round((plan.calories_per_serving || 0) * plan.quantity)} cal
+                      <div 
+                        key={plan.id} 
+                        draggable
+                        onDragStart={() => setDraggedItem({ mealPlanId: plan.id, foodName: plan.food_name })}
+                        onDragEnd={() => setDraggedItem(null)}
+                        className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg cursor-move hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                      >
+                        {/* Desktop layout */}
+                        <div className="hidden sm:flex justify-between items-center">
+                          <div className="flex-1">
+                            <span className="font-medium text-gray-900 dark:text-white">
+                              {plan.food_name}
+                            </span>
+                            <button
+                              onClick={() => setEditingServings({ mealPlanId: plan.id, quantity: plan.quantity })}
+                              className="text-gray-600 dark:text-gray-400 ml-2 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                              title="Click to edit servings"
+                            >
+                              {plan.quantity}x {plan.serving_size}
+                            </button>
                           </div>
-                          <div className="text-xs text-gray-600 dark:text-gray-400">
-                            P: {((plan.protein_per_serving || 0) * plan.quantity).toFixed(1)}g | 
-                            {macroGoals && macroGoals.track_net_carbs 
-                              ? `C (Net): ${(netCarbs * plan.quantity).toFixed(1)}g`
-                              : `C: ${((plan.carbs_per_serving || 0) * plan.quantity).toFixed(1)}g`
-                            } | 
-                            F: {((plan.fat_per_serving || 0) * plan.quantity).toFixed(1)}g | 
-                            Fiber: {((plan.fiber_per_serving || 0) * plan.quantity).toFixed(1)}g
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                {totalCals} cal
+                              </div>
+                              <div className="text-xs text-gray-600 dark:text-gray-400">
+                                P: {((plan.protein_per_serving || 0) * plan.quantity).toFixed(1)}g | 
+                                {macroGoals && macroGoals.track_net_carbs 
+                                  ? `C (Net): ${(netCarbs * plan.quantity).toFixed(1)}g`
+                                  : `C: ${((plan.carbs_per_serving || 0) * plan.quantity).toFixed(1)}g`
+                                } | 
+                                F: {((plan.fat_per_serving || 0) * plan.quantity).toFixed(1)}g | 
+                                Fiber: {((plan.fiber_per_serving || 0) * plan.quantity).toFixed(1)}g
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveFoodFromMeal(plan.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                              title="Remove from meal"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
                           </div>
                         </div>
-                        <button
-                          onClick={() => handleRemoveFoodFromMeal(plan.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-md transition-colors"
-                          title="Remove from meal"
-                        >
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
+
+                        {/* Mobile layout */}
+                        <div className="sm:hidden">
+                          <div className="flex justify-between items-start gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-gray-900 dark:text-white truncate">
+                                {plan.food_name}
+                              </div>
+                              <button
+                                onClick={() => setEditingServings({ mealPlanId: plan.id, quantity: plan.quantity })}
+                                className="text-xs text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+                                title="Click to edit servings"
+                              >
+                                {plan.quantity}x {plan.serving_size}
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-900 dark:text-white">{totalCals} cal</span>
+                              <button
+                                onClick={() => handleRemoveFoodFromMeal(plan.id)}
+                                className="p-1.5 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded transition-colors"
+                                title="Remove"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                          <div className="mt-1.5 flex gap-3 text-xs text-gray-500 dark:text-gray-400">
+                            <span>P:{((plan.protein_per_serving || 0) * plan.quantity).toFixed(0)}g</span>
+                            <span>C:{macroGoals && macroGoals.track_net_carbs 
+                              ? (netCarbs * plan.quantity).toFixed(0) 
+                              : ((plan.carbs_per_serving || 0) * plan.quantity).toFixed(0)}g</span>
+                            <span>F:{((plan.fat_per_serving || 0) * plan.quantity).toFixed(0)}g</span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
                     );
                   })}
                 </div>
@@ -1172,13 +1306,18 @@ const MealPlanner = () => {
                     handleMoveFood(draggedItem.mealPlanId, meal.id);
                   }
                 }}
-                className={`mt-3 p-3 border-2 border-dashed rounded-lg text-center text-sm transition-colors ${
+                className={`mt-3 p-3 border-2 border-dashed rounded-lg text-center text-xs sm:text-sm transition-colors ${
                   draggedItem 
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' 
                     : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
                 }`}
               >
-                {draggedItem ? `Drop here to move ${draggedItem.foodName}` : 'Drag foods here to add them'}
+                <span className="hidden sm:inline">
+                  {draggedItem ? `Drop here to move ${draggedItem.foodName}` : 'Drag foods here to add them'}
+                </span>
+                <span className="sm:hidden">
+                  {draggedItem ? 'Drop to move' : 'Drag here to add'}
+                </span>
               </div>
 
                 {/* AI Loading Placeholder */}

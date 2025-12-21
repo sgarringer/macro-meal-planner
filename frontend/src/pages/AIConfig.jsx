@@ -100,9 +100,11 @@ const AIConfig = () => {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8">
-        AI Service Configuration
-      </h1>
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
+          AI Service Configuration
+        </h1>
+      </div>
 
       {message && (
         <div className={`mb-6 p-4 rounded-lg ${

@@ -671,10 +671,11 @@ app.delete('/api/meals/:id', authenticateToken, (req, res) => {
 app.get('/api/foods', authenticateToken, (req, res) => {
   const { search, type } = req.query;
   let query = `
-    SELECT f.*, COALESCE(ufo.active, f.active) AS active
+    SELECT f.*, COALESCE(ufo.active, f.active, 1) AS active
     FROM foods f
     LEFT JOIN user_food_overrides ufo ON ufo.food_id = f.id AND ufo.user_id = ?
     WHERE (f.user_id = ? OR f.user_id IS NULL)
+      AND COALESCE(ufo.active, f.active, 1) = 1
   `;
   let params = [req.user.userId, req.user.userId];
   
@@ -697,6 +698,73 @@ app.get('/api/foods', authenticateToken, (req, res) => {
       return res.status(500).json({ error: 'Database error' });
     }
     res.json(rows);
+  });
+});
+
+// Unified foods search (regular + linked) to reduce multiple fetches
+app.get('/api/foods/all', authenticateToken, (req, res) => {
+  const { search } = req.query;
+
+  // Base foods query (active only)
+  let foodsQuery = `
+    SELECT f.*, COALESCE(ufo.active, f.active, 1) AS active
+    FROM foods f
+    LEFT JOIN user_food_overrides ufo ON ufo.food_id = f.id AND ufo.user_id = ?
+    WHERE (f.user_id = ? OR f.user_id IS NULL)
+      AND COALESCE(ufo.active, f.active, 1) = 1
+  `;
+  const foodsParams = [req.user.userId, req.user.userId];
+  if (search) {
+    foodsQuery += ' AND f.name LIKE ?';
+    foodsParams.push(`%${search}%`);
+  }
+  foodsQuery += ' ORDER BY f.name';
+
+  // Linked foods query with component aggregation
+  let linkedQuery = `
+    SELECT lf.*, 
+           GROUP_CONCAT(
+             json_object('id', f.id, 'name', f.name, 'quantity', lfc.quantity, 
+                        'calories_per_serving', f.calories_per_serving,
+                        'protein_per_serving', f.protein_per_serving,
+                        'carbs_per_serving', f.carbs_per_serving,
+                        'fat_per_serving', f.fat_per_serving,
+                        'fiber_per_serving', f.fiber_per_serving)
+           ) as components
+    FROM linked_foods lf
+    LEFT JOIN linked_food_components lfc ON lf.id = lfc.linked_food_id
+    LEFT JOIN foods f ON lfc.food_id = f.id
+    WHERE lf.user_id = ?
+  `;
+  const linkedParams = [req.user.userId];
+  if (search) {
+    linkedQuery += ' AND lf.name LIKE ?';
+    linkedParams.push(`%${search}%`);
+  }
+  linkedQuery += ' GROUP BY lf.id ORDER BY lf.created_at DESC';
+
+  Promise.all([
+    new Promise((resolve, reject) => {
+      db.all(foodsQuery, foodsParams, (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    }),
+    new Promise((resolve, reject) => {
+      db.all(linkedQuery, linkedParams, (err, rows) => {
+        if (err) return reject(err);
+        const linkedFoods = (rows || []).map(row => ({
+          ...row,
+          components: row.components ? JSON.parse(`[${row.components}]`) : []
+        }));
+        resolve(linkedFoods);
+      });
+    })
+  ]).then(([foods, linkedFoods]) => {
+    res.json({ foods, linkedFoods });
+  }).catch(err => {
+    console.error('Error fetching foods/all:', err);
+    res.status(500).json({ error: 'Database error' });
   });
 });
 

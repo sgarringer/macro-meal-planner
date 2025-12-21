@@ -216,7 +216,7 @@ const Foods = () => {
 
   if (loading) {
     return (
-      <div className="w-full max-w-none px-4 sm:px-6 lg:px-10 mx-auto">
+      <div className="w-full max-w-full px-4 sm:px-6 lg:px-10 mx-auto">
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
         </div>
@@ -225,9 +225,9 @@ const Foods = () => {
   }
 
   return (
-    <div className="w-full max-w-none px-4 sm:px-6 lg:px-10 mx-auto">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-10 mx-auto">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">
           Food Catalog
         </h1>
         <button
@@ -235,7 +235,7 @@ const Foods = () => {
             setEditingFood(null);
             setShowForm(true);
           }}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md 
+          className="w-full sm:w-auto bg-blue-600 text-white px-4 py-2 rounded-md 
                    hover:bg-blue-700 transition-colors duration-200"
         >
           Add Food
@@ -493,7 +493,7 @@ const Foods = () => {
       )}
 
       {/* Food List */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md">
         {filteredFoods.length === 0 ? (
           <div className="p-8 text-center">
             <p className="text-gray-500 dark:text-gray-400">
@@ -501,39 +501,41 @@ const Foods = () => {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <>
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full table-fixed">
               <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[20%] px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Food
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Serving Size
+                  <th className="w-[12%] px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Serving
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Calories
+                  <th className="w-[8%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Cal
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Protein
+                  <th className="w-[8%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Prot
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[8%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Carbs
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[8%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Fat
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[8%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Fiber
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[10%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Type
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[10%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Actions
+                  <th className="w-[8%] px-2 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    
                   </th>
                 </tr>
               </thead>
@@ -544,37 +546,37 @@ const Foods = () => {
                     onClick={() => food.user_id && handleEditFood(food)}
                     className={`hover:bg-gray-50 dark:hover:bg-gray-700 ${food.user_id ? 'cursor-pointer' : ''}`}
                   >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900 dark:text-white">
+                    <td className="px-3 py-3">
+                      <div className="truncate">
+                        <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
                           {food.name}
                         </div>
                         {food.brand && (
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                             {food.brand}
                           </div>
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">
+                    <td className="px-3 py-3 text-sm text-gray-900 dark:text-gray-300 truncate">
                       {food.serving_size}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">
+                    <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
                       {food.calories_per_serving}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">
+                    <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
                       {food.protein_per_serving}g
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">
+                    <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
                       {food.carbs_per_serving}g
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">
+                    <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
                       {food.fat_per_serving}g
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">
+                    <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
                       {food.fiber_per_serving}g
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-2 py-3">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                         food.is_common 
                           ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
@@ -583,13 +585,13 @@ const Foods = () => {
                         {food.is_common ? 'Common' : 'Custom'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-2 py-3">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleToggleFood(food.id);
                         }}
-                        className={`inline-flex px-3 py-1 text-xs font-semibold rounded-full transition-colors duration-200 ${
+                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full transition-colors duration-200 ${
                           food.active 
                             ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-300'
                             : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300'
@@ -598,7 +600,7 @@ const Foods = () => {
                         {food.active ? 'Active' : 'Inactive'}
                       </button>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                    <td className="px-2 py-3 text-sm text-center">
                       {food.user_id && (
                         <button
                           onClick={(e) => {
@@ -617,8 +619,76 @@ const Foods = () => {
                   </tr>
                 ))}
               </tbody>
-            </table>
+                </table>
           </div>
+
+            {/* Mobile cards */}
+            <div className="block sm:hidden divide-y divide-gray-200 dark:divide-gray-700">
+              {filteredFoods.map((food) => (
+                <div key={food.id} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-base font-semibold text-gray-900 dark:text-white">{food.name}</div>
+                      {food.brand && (
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{food.brand}</div>
+                      )}
+                      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{food.serving_size}</div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <span className={`inline-flex px-2 py-1 text-[11px] font-semibold rounded-full ${
+                        food.is_common 
+                          ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
+                          : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+                      }`}>
+                        {food.is_common ? 'Common' : 'Custom'}
+                      </span>
+                      <button
+                        onClick={() => handleToggleFood(food.id)}
+                        className={`inline-flex px-3 py-1 text-[11px] font-semibold rounded-full transition-colors duration-200 ${
+                          food.active 
+                            ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-300'
+                            : 'bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300'
+                        }`}
+                      >
+                        {food.active ? 'Active' : 'Inactive'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-700 dark:text-gray-300">
+                    <div>Cal: {food.calories_per_serving}</div>
+                    <div>Protein: {food.protein_per_serving}g</div>
+                    <div>Carbs: {food.carbs_per_serving}g</div>
+                    <div>Fat: {food.fat_per_serving}g</div>
+                    <div>Fiber: {food.fiber_per_serving}g</div>
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-3">
+                    <button
+                      onClick={() => food.user_id && handleEditFood(food)}
+                      className={`flex-1 px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 ${
+                        food.user_id
+                          ? 'text-blue-600 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-gray-700'
+                          : 'text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                      }`}
+                      disabled={!food.user_id}
+                    >
+                      {food.user_id ? 'Edit' : 'View Only'}
+                    </button>
+                    {food.user_id && (
+                      <button
+                        onClick={() => handleDeleteFood(food.id)}
+                        className="px-3 py-2 text-sm text-red-600 dark:text-red-300 hover:bg-red-50 dark:hover:bg-gray-700 rounded-md"
+                        title="Delete food"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
