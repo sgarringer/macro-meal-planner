@@ -1306,6 +1306,64 @@ app.delete('/api/meal-plans/:id', authenticateToken, (req, res) => {
       });
     });
 
+    // Update an existing linked food
+    app.put('/api/linked-foods/:id', authenticateToken, (req, res) => {
+      const { id } = req.params;
+      const { name, description, components } = req.body;
+
+      if (!name || !components || components.length === 0) {
+        return res.status(400).json({ error: 'Name and at least one component are required' });
+      }
+
+      // Ensure the linked food belongs to the current user
+      db.get('SELECT id FROM linked_foods WHERE id = ? AND user_id = ?', [id, req.user.userId], (err, row) => {
+        if (err) {
+          return res.status(500).json({ error: 'Database error' });
+        }
+        if (!row) {
+          return res.status(404).json({ error: 'Linked food not found' });
+        }
+
+        db.serialize(() => {
+          // Update basic info
+          db.run('UPDATE linked_foods SET name = ?, description = ? WHERE id = ? AND user_id = ?',
+            [name, description, id, req.user.userId], function(updateErr) {
+            if (updateErr) {
+              return res.status(500).json({ error: 'Failed to update linked food' });
+            }
+
+            // Replace components: delete existing, then insert new
+            db.run('DELETE FROM linked_food_components WHERE linked_food_id = ?', [id], function(deleteErr) {
+              if (deleteErr) {
+                return res.status(500).json({ error: 'Failed to update components' });
+              }
+
+              const insertPromises = components.map(component => {
+                return new Promise((resolve, reject) => {
+                  db.run('INSERT INTO linked_food_components (linked_food_id, food_id, quantity) VALUES (?, ?, ?)',
+                    [id, component.food_id, component.quantity], function(insErr) {
+                    if (insErr) reject(insErr);
+                    else resolve();
+                  });
+                });
+              });
+
+              Promise.all(insertPromises)
+                .then(() => {
+                  res.json({
+                    message: 'Linked food updated successfully',
+                    linked_food: { id: parseInt(id, 10), name, description, components }
+                  });
+                })
+                .catch(() => {
+                  res.status(500).json({ error: 'Failed to update components' });
+                });
+            });
+          });
+        });
+      });
+    });
+
   app.get('/api/linked-foods/:id/nutrition', authenticateToken, (req, res) => {
     
     db.all(`
@@ -1351,6 +1409,35 @@ app.delete('/api/meal-plans/:id', authenticateToken, (req, res) => {
             fat: (row.fat_per_serving || 0) * row.quantity
           }
         }))
+      });
+    });
+  });
+
+  // Delete a linked food
+  app.delete('/api/linked-foods/:id', authenticateToken, (req, res) => {
+    const { id } = req.params;
+
+    // Ensure the linked food belongs to the current user
+    db.get('SELECT id FROM linked_foods WHERE id = ? AND user_id = ?', [id, req.user.userId], (err, row) => {
+      if (err) {
+        return res.status(500).json({ error: 'Database error' });
+      }
+      if (!row) {
+        return res.status(404).json({ error: 'Linked food not found' });
+      }
+
+      db.serialize(() => {
+        db.run('DELETE FROM linked_food_components WHERE linked_food_id = ?', [id], function(compErr) {
+          if (compErr) {
+            return res.status(500).json({ error: 'Failed to delete components' });
+          }
+          db.run('DELETE FROM linked_foods WHERE id = ? AND user_id = ?', [id, req.user.userId], function(delErr) {
+            if (delErr) {
+              return res.status(500).json({ error: 'Failed to delete linked food' });
+            }
+            res.json({ message: 'Linked food deleted successfully' });
+          });
+        });
       });
     });
   });

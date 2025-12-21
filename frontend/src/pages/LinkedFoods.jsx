@@ -8,6 +8,9 @@ const LinkedFoods = () => {
   const [foods, setFoods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingLinkedFood, setEditingLinkedFood] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [expandedFood, setExpandedFood] = useState(null);
   const [message, setMessage] = useState('');
 
@@ -81,17 +84,25 @@ const LinkedFoods = () => {
         return;
       }
 
-      await api.post('/linked-foods', {
-        name: formData.name,
-        description: formData.description,
-        components: validComponents
-      });
-
-      setMessage('Linked food created successfully');
+      if (editingLinkedFood) {
+        await api.put(`/linked-foods/${editingLinkedFood.id}`, {
+          name: formData.name,
+          description: formData.description,
+          components: validComponents
+        });
+        setMessage('Linked food updated successfully');
+      } else {
+        await api.post('/linked-foods', {
+          name: formData.name,
+          description: formData.description,
+          components: validComponents
+        });
+        setMessage('Linked food created successfully');
+      }
       resetForm();
       fetchData();
     } catch (error) {
-      setMessage(error.response?.data?.error || 'Failed to create linked food');
+      setMessage(error.response?.data?.error || (editingLinkedFood ? 'Failed to update linked food' : 'Failed to create linked food'));
     }
   };
 
@@ -101,6 +112,7 @@ const LinkedFoods = () => {
       description: '',
       components: []
     });
+    setEditingLinkedFood(null);
     setShowForm(false);
   };
 
@@ -123,6 +135,26 @@ const LinkedFoods = () => {
     }
   };
 
+  const handleDeleteLinkedFood = async (linkedFoodId) => {
+    setMessage('');
+    try {
+      await api.delete(`/linked-foods/${linkedFoodId}`);
+      setMessage('Linked food deleted successfully');
+      // If the deleted item was being edited, reset the form
+      if (editingLinkedFood && editingLinkedFood.id === linkedFoodId) {
+        resetForm();
+      }
+      // Refresh list
+      fetchData();
+    } catch (error) {
+      setMessage(error.response?.data?.error || 'Failed to delete linked food');
+    }
+    } finally {
+      setShowDeleteModal(false);
+      setDeleteTarget(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -142,7 +174,7 @@ const LinkedFoods = () => {
           className="w-full sm:w-auto bg-blue-600 text-white px-4 py-2 rounded-md 
                    hover:bg-blue-700 transition-colors duration-200"
         >
-          Create Linked Food
+          {editingLinkedFood ? 'Edit Linked Food' : 'Create Linked Food'}
         </button>
       </div>
 
@@ -162,7 +194,7 @@ const LinkedFoods = () => {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
-                Create Linked Food
+                {editingLinkedFood ? 'Edit Linked Food' : 'Create Linked Food'}
               </h2>
               
               <form onSubmit={handleSubmit} className="space-y-6">
@@ -280,10 +312,42 @@ const LinkedFoods = () => {
                     className="px-4 py-2 bg-blue-600 text-white rounded-md 
                              hover:bg-blue-700 transition-colors duration-200"
                   >
-                    Create Linked Food
+                    {editingLinkedFood ? 'Save Changes' : 'Create Linked Food'}
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">Delete Linked Food</h2>
+              <p className="text-gray-700 dark:text-gray-300">
+                Are you sure you want to delete
+                <span className="font-semibold ml-1">{deleteTarget?.name}</span>? This action cannot be undone.
+              </p>
+              <div className="mt-6 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setShowDeleteModal(false); setDeleteTarget(null); }}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                           text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteTarget && handleDeleteLinkedFood(deleteTarget.id)}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -324,7 +388,31 @@ const LinkedFoods = () => {
                       </span>
                     </div>
                   </div>
-                  <div className="ml-4">
+                  <div className="ml-4 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingLinkedFood(linkedFood);
+                        setFormData({
+                          name: linkedFood.name || '',
+                          description: linkedFood.description || '',
+                          components: (linkedFood.components || []).map(c => ({ food_id: c.id, quantity: c.quantity }))
+                        });
+                        setShowForm(true);
+                      }}
+                      className="px-3 py-1 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+                      className="px-3 py-1 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(linkedFood); setShowDeleteModal(true); }}
+                      className="px-3 py-1 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                    >
+                      Delete
+                    </button>
                     <svg 
                       className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${
                         expandedFood === linkedFood.id ? 'transform rotate-180' : ''
