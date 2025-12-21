@@ -661,8 +661,9 @@ app.get('/api/foods', authenticateToken, (req, res) => {
 
 app.post('/api/foods', authenticateToken, (req, res) => {
   const { name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving } = req.body;
+  const isMissing = (v) => v === undefined || v === null || v === '';
   
-  if (!name || !serving_size || !calories_per_serving || !protein_per_serving || !carbs_per_serving || !fat_per_serving) {
+  if (!name || !serving_size || isMissing(calories_per_serving) || isMissing(protein_per_serving) || isMissing(carbs_per_serving) || isMissing(fat_per_serving)) {
     return res.status(400).json({ error: 'All nutrition fields are required' });
   }
 
@@ -693,8 +694,9 @@ app.post('/api/foods', authenticateToken, (req, res) => {
 app.put('/api/foods/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
   const { name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving } = req.body;
+  const isMissing = (v) => v === undefined || v === null || v === '';
   
-  if (!name || !serving_size || !calories_per_serving || !protein_per_serving || !carbs_per_serving || !fat_per_serving) {
+  if (!name || !serving_size || isMissing(calories_per_serving) || isMissing(protein_per_serving) || isMissing(carbs_per_serving) || isMissing(fat_per_serving)) {
     return res.status(400).json({ error: 'All nutrition fields are required' });
   }
 
@@ -732,6 +734,29 @@ app.put('/api/foods/:id', authenticateToken, (req, res) => {
   });
 });
 
+// Toggle food active status (user-owned foods only)
+app.put('/api/foods/:id/toggle', authenticateToken, (req, res) => {
+  const { id } = req.params;
+
+  // Verify ownership
+  db.get('SELECT id, active FROM foods WHERE id = ? AND user_id = ?', [id, req.user.userId], (err, food) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
+    if (!food) {
+      return res.status(404).json({ error: 'Food not found or you do not have permission to edit it' });
+    }
+
+    const newActive = food.active ? 0 : 1;
+    db.run('UPDATE foods SET active = ? WHERE id = ? AND user_id = ?', [newActive, id, req.user.userId], function(updateErr) {
+      if (updateErr) {
+        return res.status(500).json({ error: 'Failed to update food status' });
+      }
+      res.json({ message: 'Food status updated successfully', active: !!newActive });
+    });
+  });
+});
+
 // Parse nutrition label image with AI (prefers Ollama vision, falls back to OpenAI vision)
 app.post('/api/foods/label/parse', authenticateToken, upload.single('image'), async (req, res) => {
   try {
@@ -763,8 +788,11 @@ app.post('/api/foods/label/parse', authenticateToken, upload.single('image'), as
 
     let content = '';
 
-    // Prefer Ollama if configured
-    if (config && config.ollama_enabled && config.ollama_endpoint && config.ollama_model) {
+    // Helpers to call providers
+    const tryOllama = async () => {
+      if (!(config && config.ollama_enabled && config.ollama_endpoint && config.ollama_model)) {
+        throw new Error('Ollama not fully configured');
+      }
       const ollamaRes = await fetchWithTimeout(`${config.ollama_endpoint}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -779,15 +807,17 @@ app.post('/api/foods/label/parse', authenticateToken, upload.single('image'), as
           }
         })
       });
-
       if (!ollamaRes.ok) {
-        return res.status(502).json({ error: 'Ollama API error while parsing label' });
+        throw new Error('Ollama API error while parsing label');
       }
-
       const ollamaData = await ollamaRes.json();
-      content = ollamaData.response || '';
-    } else if (config && config.openai_enabled && config.openai_api_key && config.openai_model) {
-      // Fallback to OpenAI vision
+      return ollamaData.response || '';
+    };
+
+    const tryOpenAI = async () => {
+      if (!(config && config.openai_enabled && config.openai_api_key && config.openai_model)) {
+        throw new Error('OpenAI not fully configured');
+      }
       const openaiRes = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -807,19 +837,42 @@ app.post('/api/foods/label/parse', authenticateToken, upload.single('image'), as
             }
           ],
           temperature: 0.1,
-          response_format: { type: 'json_object' },
+          // Avoid response_format to increase model compatibility
           max_tokens: 500
         })
       });
-
       if (!openaiRes.ok) {
-        return res.status(502).json({ error: 'OpenAI API error while parsing label' });
+        throw new Error('OpenAI API error while parsing label');
       }
-
       const openaiData = await openaiRes.json();
-      content = openaiData.choices?.[0]?.message?.content || '';
-    } else {
-      return res.status(400).json({ error: 'Configure Ollama or OpenAI to extract labels.' });
+      return openaiData.choices?.[0]?.message?.content || '';
+    };
+
+    // Choose primary service based on preferred_service, else default
+    const primaryService = (config && config.preferred_service) 
+      ? config.preferred_service 
+      : (config && config.openai_enabled ? 'openai' : (config && config.ollama_enabled ? 'ollama' : null));
+
+    if (!primaryService) {
+      return res.status(400).json({ error: 'AI service not configured. Enable OpenAI or Ollama in AI Configuration.' });
+    }
+
+    try {
+      content = primaryService === 'ollama' ? await tryOllama() : await tryOpenAI();
+    } catch (primaryErr) {
+      // Attempt fallback to the other provider if possible
+      try {
+        const fallbackService = primaryService === 'ollama' ? 'openai' : 'ollama';
+        if (fallbackService === 'ollama' && config && config.ollama_enabled) {
+          content = await tryOllama();
+        } else if (fallbackService === 'openai' && config && config.openai_enabled) {
+          content = await tryOpenAI();
+        } else {
+          throw primaryErr;
+        }
+      } catch (fallbackErr) {
+        return res.status(502).json({ error: fallbackErr.message || 'AI parsing failed', details: primaryErr.message });
+      }
     }
 
     let parsed;
@@ -833,13 +886,20 @@ app.post('/api/foods/label/parse', authenticateToken, upload.single('image'), as
       return res.status(502).json({ error: 'Failed to parse AI response', raw: content });
     }
 
+    const toNumberOrZero = (val) => {
+      if (val === undefined || val === null) return 0;
+      if (typeof val === 'string' && val.trim() === '') return 0;
+      const num = Number(val);
+      return Number.isFinite(num) ? num : 0;
+    };
+
     const fields = {
       serving_size: parsed.serving_size || '',
-      calories_per_serving: Number(parsed.calories_per_serving) || '',
-      protein_per_serving: Number(parsed.protein_per_serving) || '',
-      carbs_per_serving: Number(parsed.carbs_per_serving) || '',
-      fat_per_serving: Number(parsed.fat_per_serving) || '',
-      fiber_per_serving: Number(parsed.fiber_per_serving ?? 0) || 0
+      calories_per_serving: toNumberOrZero(parsed.calories_per_serving),
+      protein_per_serving: toNumberOrZero(parsed.protein_per_serving),
+      carbs_per_serving: toNumberOrZero(parsed.carbs_per_serving),
+      fat_per_serving: toNumberOrZero(parsed.fat_per_serving),
+      fiber_per_serving: toNumberOrZero(parsed.fiber_per_serving)
     };
 
     return res.json({ fields, raw_response: content });
@@ -1652,6 +1712,14 @@ JSON ONLY:`;
   sendEvent({ status: 'Prompt ready' });
 
         try {
+          // Shared timeout helper for AI providers
+          const fetchWithTimeout = (url, options, timeout = 60000) => {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeout);
+            return fetch(url, { ...options, signal: controller.signal })
+              .finally(() => clearTimeout(id));
+          };
+
           let aiResponse;
 
           if (service === 'openai' && config.openai_enabled && config.openai_api_key && config.openai_model) {
@@ -1659,7 +1727,9 @@ JSON ONLY:`;
                         aiRequests[requestId].status = 'waiting_for_response';
                         sendEvent({ requestId, status: 'waiting_for_response' });
             
-            const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+            let openaiRes;
+            try {
+              openaiRes = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
               method: 'POST',
               headers: {
                 'Authorization': `Bearer ${config.openai_api_key}`,
@@ -1671,17 +1741,54 @@ JSON ONLY:`;
                   { role: 'system', content: 'You MUST respond with a single valid JSON object only.' },
                   { role: 'user', content: prompt }
                 ],
-                temperature: 0.7,
-                // Attempt to enforce pure JSON when supported by the model
-                response_format: { type: 'json_object' }
+                // Some models enforce default temperature only; use 1 for compatibility
+                temperature: 1
               })
-            });
+              });
 
-            if (openaiRes.ok) {
-              const openaiData = await openaiRes.json();
-              aiResponse = openaiData.choices[0]?.message?.content;
-            } else {
-              throw new Error('OpenAI API error');
+              if (openaiRes.ok) {
+                const openaiData = await openaiRes.json();
+                aiResponse = openaiData.choices[0]?.message?.content;
+              } else {
+                const errText = await openaiRes.text();
+                throw new Error(`OpenAI API error: ${openaiRes.status} ${openaiRes.statusText} - ${errText}`);
+              }
+            } catch (openaiErr) {
+              console.error('OpenAI call failed:', openaiErr);
+              sendEvent({ error: `OpenAI call failed: ${openaiErr.message}` });
+              // Fallback to Ollama if available
+              if (config.ollama_enabled && config.ollama_endpoint && config.ollama_model) {
+                sendEvent({ status: 'Falling back to Ollama...' });
+                try {
+                  const ollamaRes = await fetchWithTimeout(`${config.ollama_endpoint}/api/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      model: config.ollama_model,
+                      prompt: prompt,
+                      stream: false,
+                      options: {
+                        num_predict: 512,
+                        temperature: 0.2
+                      }
+                    })
+                  }, 120000);
+
+                  if (!ollamaRes.ok) {
+                    const ollamaErrText = await ollamaRes.text();
+                    throw new Error(`Ollama API error: ${ollamaRes.status} ${ollamaRes.statusText} - ${ollamaErrText}`);
+                  }
+                  const ollamaData = await ollamaRes.json();
+                  aiResponse = ollamaData.response || '';
+                  sendEvent({ raw_response: aiResponse });
+                } catch (ollamaErr) {
+                  console.error('Ollama fallback failed:', ollamaErr);
+                  sendEvent({ error: `Ollama fallback failed: ${ollamaErr.message}` });
+                  throw ollamaErr;
+                }
+              } else {
+                throw openaiErr;
+              }
             }
           } else if (service === 'ollama' && config.ollama_enabled && config.ollama_endpoint && config.ollama_model) {
             sendEvent({ status: 'Using Ollama service (streaming)...' });
@@ -1964,7 +2071,8 @@ JSON ONLY:`;
                 protein: parseFloat((suggestion.protein * suggestion.quantity).toFixed(1)),
                 carbs: parseFloat((suggestion.carbs * suggestion.quantity).toFixed(1)),
                 fat: parseFloat((suggestion.fat * suggestion.quantity).toFixed(1)),
-                fiber: parseFloat((suggestion.fiber * suggestion.quantity).toFixed(1))
+                fiber: parseFloat((suggestion.fiber * suggestion.quantity).toFixed(1)),
+                reason: suggestion.reason || ''
               };
             }
             const idStr = suggestion.food_id.toString();
@@ -1981,7 +2089,8 @@ JSON ONLY:`;
                 protein: parseFloat(((lf.protein_per_serving || 0) * suggestion.quantity).toFixed(1)),
                 carbs: parseFloat(((lf.carbs_per_serving || 0) * suggestion.quantity).toFixed(1)),
                 fat: parseFloat(((lf.fat_per_serving || 0) * suggestion.quantity).toFixed(1)),
-                fiber: parseFloat(((lf.fiber_per_serving || 0) * suggestion.quantity).toFixed(1))
+                fiber: parseFloat(((lf.fiber_per_serving || 0) * suggestion.quantity).toFixed(1)),
+                reason: suggestion.reason || ''
               };
             } else {
               const f = foods.find(x => x.id.toString() === idStr);
@@ -1995,7 +2104,8 @@ JSON ONLY:`;
                 protein: parseFloat(((f.protein_per_serving || 0) * suggestion.quantity).toFixed(1)),
                 carbs: parseFloat(((f.carbs_per_serving || 0) * suggestion.quantity).toFixed(1)),
                 fat: parseFloat(((f.fat_per_serving || 0) * suggestion.quantity).toFixed(1)),
-                fiber: parseFloat(((f.fiber_per_serving || 0) * suggestion.quantity).toFixed(1))
+                fiber: parseFloat(((f.fiber_per_serving || 0) * suggestion.quantity).toFixed(1)),
+                reason: suggestion.reason || ''
               };
             }
           }).filter(item => item !== null);
