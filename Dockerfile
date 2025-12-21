@@ -14,9 +14,8 @@ RUN npm ci
 # Copy frontend source code and build
 COPY frontend/ ./
 
-# Build the frontend with the API URL
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
-RUN npm run build
+# Build the frontend with the API URL (pass as env var for Vite to pick up)
+RUN VITE_API_BASE_URL=${VITE_API_BASE_URL} npm run build
 
 # ================================
 # Stage 2: Setup Backend Dependencies
