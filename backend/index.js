@@ -25,7 +25,8 @@ const upload = multer({
 });
 
 // Database setup
-const db = new sqlite3.Database('./macro_meal_planner.db');
+// Use a DB path relative to the backend directory to align with seed scripts and volume mounts
+const db = new sqlite3.Database(path.join(__dirname, 'macro_meal_planner.db'));
 // In-memory request tracking for AI suggestions
 const aiRequests = {}; // { requestId: { status, suggestions, error, createdAt, mealId, userId } }
 
