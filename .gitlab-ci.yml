@@ -95,6 +95,12 @@ build-test:
 release_job:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
+  variables:
+    GIT_SSL_NO_VERIFY: "1"
+    # Fallback names in case the client respects different env vars
+    GITLAB_SKIP_TLS_VERIFY: "true"
+    SKIP_TLS_VERIFY: "true"
+
   rules:
     - if: $CI_COMMIT_TAG
       when: never                                  # Do not run this job when a tag is created manually
