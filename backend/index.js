@@ -10,7 +10,7 @@ const { execFile } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Lightweight in-memory upload handler for small images (nutrition labels)
 const upload = multer({
