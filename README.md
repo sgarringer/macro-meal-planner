@@ -2,21 +2,18 @@
 
 A comprehensive meal planning application with AI-powered food analysis and macro tracking. Built with a React frontend and Node.js/Express backend.
 
-## 🚀 Live Demo
-
-- **Frontend**: https://5173-0349465a-0368-47c6-96df-7880a9fbcd60.proxy.daytona.works
-- **Backend API**: https://3001-0349465a-0368-47c6-96df-7880a9fbcd60.proxy.daytona.works
-
 ## 🎯 Features Implemented
 
 ### ✅ Phase 1: Backend Foundation
+
 - **Express.js API Server** with comprehensive REST endpoints
 - **SQLite Database** with proper schema for users, meals, foods, and meal plans
 - **JWT Authentication** with secure password hashing
 - **Database Initialization** with sample foods and admin user
 - **Environment Configuration** with proper security practices
 
-### ✅ Phase 2: Frontend Foundation  
+### ✅ Phase 2: Frontend Foundation
+
 - **React + Vite** setup with modern tooling
 - **Responsive Design** with Tailwind CSS (mobile-first approach)
 - **Dark/Light Theme** with system preference detection
@@ -25,6 +22,7 @@ A comprehensive meal planning application with AI-powered food analysis and macr
 - **UI Component Library** with reusable components
 
 ### ✅ Phase 3: Core User Management
+
 - **User Registration** with form validation
 - **Login/Logout** with JWT token management
 - **Password Reset** (console-based temporary passwords)
@@ -34,6 +32,7 @@ A comprehensive meal planning application with AI-powered food analysis and macr
 ## 🛠️ Tech Stack
 
 ### Backend
+
 - **Node.js** + **Express.js** - Server framework
 - **SQLite3** - Database
 - **bcryptjs** - Password hashing
@@ -42,6 +41,7 @@ A comprehensive meal planning application with AI-powered food analysis and macr
 - **helmet** - Security headers
 
 ### Frontend
+
 - **React 18** - UI framework
 - **Vite** - Build tool
 - **React Router** - Navigation
@@ -52,6 +52,7 @@ A comprehensive meal planning application with AI-powered food analysis and macr
 ## 📱 Responsive Design
 
 The application features a fully responsive design:
+
 - **Mobile**: Touch-optimized interface with drawer navigation
 - **Tablet**: Adaptive layouts with gesture support
 - **Desktop**: Full-featured interface with sidebar navigation
@@ -75,17 +76,20 @@ The application features a fully responsive design:
 ## 🗄️ Database Schema
 
 ### Users
+
 - Authentication and profile data
 - Role-based access control
 - Session management
 
 ### Foods
+
 - Common foods database (shared)
 - Personal food catalog
 - Complete US nutrition label fields
 - AI estimation capabilities
 
 ### Meal Plans
+
 - Weekly meal planning
 - Macro tracking per meal
 - Food quantity management
@@ -94,10 +98,12 @@ The application features a fully responsive design:
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js 16+ 
+
+- Node.js 16+
 - npm or yarn
 
 ### Backend Setup
+
 ```bash
 cd backend
 npm install
@@ -105,6 +111,7 @@ npm run dev
 ```
 
 ### Frontend Setup
+
 ```bash
 cd frontend  
 npm install
@@ -112,7 +119,9 @@ npm run dev
 ```
 
 ### Environment Variables
+
 Copy `.env.example` to `.env` and configure:
+
 - Database paths
 - JWT secrets
 - API endpoints
@@ -121,28 +130,34 @@ Copy `.env.example` to `.env` and configure:
 ## 📄 API Endpoints
 
 ### Authentication
+
 - `POST /api/auth/register` - User registration
 - `POST /api/auth/login` - User login
 - `GET /api/auth/me` - Get current user
 
 ### Profile
+
 - `GET /api/profile` - Get user profile
 - `PUT /api/profile` - Update profile
 
 ### Foods
+
 - `GET /api/foods/common` - Get common foods
 - `GET /api/foods/user` - Get user foods
 
 ### Health Check
+
 - `GET /health` - Server status
 
 ## 🧪 Demo Accounts
 
 ### Admin Account
+
 - **Username**: admin
 - **Password**: admin123
 
 ### Test Account
+
 - **Username**: testuser
 - **Password**: password123
 
@@ -151,21 +166,25 @@ Copy `.env.example` to `.env` and configure:
 The foundation is complete and ready for advanced features:
 
 ### Phase 4: Macro Goals & Meal Configuration
+
 - Macro goal setup interface
 - Eating window configuration
 - Meal timing and percentage allocation
 
-### Phase 5: Food Catalog System  
+### Phase 5: Food Catalog System
+
 - Photo analysis (OpenAI/Ollama)
 - AI estimation for produce
 - Advanced search and filtering
 
 ### Phase 6: Meal Planning Interface
+
 - Drag-and-drop meal planning
 - Real-time macro tracking
 - Copy week functionality
 
 ### Phase 7: AI Integration
+
 - OpenAI and Ollama support
 - Meal suggestion system
 - Nutrition optimization
