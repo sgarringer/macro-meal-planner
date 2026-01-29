@@ -68,6 +68,9 @@ build:
       --build-arg "JWT_SECRET=${JWT_SECRET}"
       --build-arg "ADMIN_USERNAME=${ADMIN_USERNAME}"
       --build-arg "ADMIN_PASSWORD=${ADMIN_PASSWORD}"
+      --insecure
+      --skip-tls-verify
+
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH  # Run this job when commits are pushed or merged to the default branch
 
@@ -88,6 +91,9 @@ build-test:
       --build-arg "JWT_SECRET=${JWT_SECRET_TEST}"
       --build-arg "ADMIN_USERNAME=${ADMIN_USERNAME_TEST}"
       --build-arg "ADMIN_PASSWORD=${ADMIN_PASSWORD_TEST}"
+      --insecure
+      --skip-tls-verify
+
   rules:
     - if: $CI_COMMIT_BRANCH == 'test'  # Run this job when commits are pushed or merged to the branch named test
 

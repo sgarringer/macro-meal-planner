@@ -4,7 +4,7 @@ A comprehensive meal planning application with AI-powered food analysis and macr
 
 ## 🎯 Features Implemented
 
-### ✅ Phase 1: Backend Foundation
+### Backend
 
 - **Express.js API Server** with comprehensive REST endpoints
 - **SQLite Database** with proper schema for users, meals, foods, and meal plans
@@ -12,7 +12,7 @@ A comprehensive meal planning application with AI-powered food analysis and macr
 - **Database Initialization** with sample foods and admin user
 - **Environment Configuration** with proper security practices
 
-### ✅ Phase 2: Frontend Foundation
+### Frontend
 
 - **React + Vite** setup with modern tooling
 - **Responsive Design** with Tailwind CSS (mobile-first approach)
@@ -21,13 +21,37 @@ A comprehensive meal planning application with AI-powered food analysis and macr
 - **Routing & Navigation** with React Router
 - **UI Component Library** with reusable components
 
-### ✅ Phase 3: Core User Management
+### User Management
 
 - **User Registration** with form validation
 - **Login/Logout** with JWT token management
 - **Password Reset** (console-based temporary passwords)
 - **Session Management** with automatic token refresh
 - **User Profile** with customizable preferences
+
+### Macro Goals & Meal Configuration
+
+- Macro goal setup interface (calories, protein, carbs, fat ratios for diets or custom )
+- Eating window configuration
+- Meal timing and percentage allocation
+
+### Phase 5: Food Catalog System
+
+- Photo analysis of nutrition label (OpenAI/Ollama)
+- TODO: AI estimation for produce
+- Advanced search and filtering
+
+### Phase 6: Meal Planning Interface
+
+- Drag-and-drop meal planning
+- Real-time macro tracking
+- Copy week functionality
+
+### Phase 7: AI Integration
+
+- OpenAI and Ollama support
+- Meal suggestion system based on ingredients on hand and preferences
+- Nutrition optimization
 
 ## 🛠️ Tech Stack
 
@@ -165,51 +189,6 @@ Copy `.env.example` to `.env` and configure:
 
 The foundation is complete and ready for advanced features:
 
-### Phase 4: Macro Goals & Meal Configuration
-
-- Macro goal setup interface
-- Eating window configuration
-- Meal timing and percentage allocation
-
-### Phase 5: Food Catalog System
-
-- Photo analysis (OpenAI/Ollama)
-- AI estimation for produce
-- Advanced search and filtering
-
-### Phase 6: Meal Planning Interface
-
-- Drag-and-drop meal planning
-- Real-time macro tracking
-- Copy week functionality
-
-### Phase 7: AI Integration
-
-- OpenAI and Ollama support
-- Meal suggestion system
-- Nutrition optimization
-
-## 📊 Architecture
-
-```
-macro-meal-planner/
-├── backend/                 # Node.js API server
-│   ├── src/
-│   │   ├── routes/         # API endpoints
-│   │   ├── middleware/     # Auth, validation
-│   │   └── utils/          # Database helpers
-│   └── database/           # SQLite database
-├── frontend/               # React application
-│   ├── src/
-│   │   ├── components/     # UI components
-│   │   ├── contexts/       # State management
-│   │   ├── pages/          # Route components
-│   │   ├── services/       # API clients
-│   │   └── utils/          # Helper functions
-│   └── public/
-└── docs/                   # Documentation
-```
-
 ## 🤝 Contributing
 
 1. Fork the repository
@@ -227,7 +206,3 @@ This project is licensed under the ISC License.
 - Built with modern web technologies
 - Inspired by nutrition tracking best practices
 - Designed with user experience in mind
-
----
-
-**Note**: This is a foundational implementation. The core architecture is solid and ready for the advanced features outlined in the development roadmap.
