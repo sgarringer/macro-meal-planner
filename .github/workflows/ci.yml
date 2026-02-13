@@ -1,112 +1,95 @@
 name: CI/CD Pipeline
-'on':
+
+on:
   push:
-    branches:
-      - main
-      - master
-      - develop
+    branches: [main, master, develop]
   pull_request:
-    branches:
-      - main
-      - master
+    branches: [main, master]
+
+env:
+  REGISTRY: ghcr.io
+  # Using github.repository (e.g., username/repo-name)
+  IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: '24'
+
 jobs:
   trivy-fs:
     runs-on: ubuntu-latest
-    container:
-      name: aquasec/trivy:latest
-      entrypoint:
-        - ''
-    env:
-      DOCKER_DRIVER: overlay2
-      NODE_VERSION: '24'
-      SAST_EXCLUDED_PATHS: backend/node_modules,frontend/node_modules,backend/dist,frontend/build
-      IMAGE_TAG: ghcr.io_IMAGE:v0.$CI_PIPELINE_IID
-      TRIVY_CACHE_DIR: .trivycache/
     steps:
-      - name: Cache dependencies
-        uses: actions/cache@v4
-        with:
-          path: .trivycache/
-          key: ${{ runner.os }}-trivy-fs
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: trivy-fs
-        run: trivy fs --exit-code 1 --severity CRITICAL,HIGH --cache-dir .trivycache/ .
-        continue-on-error: false
+
+      - name: Run Trivy FS Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
   build:
     runs-on: ubuntu-latest
-    container:
-      name: gcr.io/kaniko-project/executor:v1.14.0-debug
-      entrypoint:
-        - ''
-    env:
-      DOCKER_DRIVER: overlay2
-      NODE_VERSION: '24'
-      SAST_EXCLUDED_PATHS: backend/node_modules,frontend/node_modules,backend/dist,frontend/build
-      IMAGE_TAG: ghcr.io_IMAGE:v0.$CI_PIPELINE_IID
-      TRIVY_CACHE_DIR: .trivycache/
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: build
-        run: >-
-          export VERSION=v0.$CI_PIPELINE_IID
+    permissions:
+      contents: read
+      packages: write # Required to push to GHCR
 
-          /kaniko/executor --context "${CI_PROJECT_DIR}" --dockerfile "${CI_PROJECT_DIR}/Dockerfile" --destination
-          "${CI_REGISTRY_IMAGE}:${VERSION}" --destination "${CI_REGISTRY_IMAGE}:latest" --build-arg
-          "VITE_API_BASE_URL=${VITE_API_BASE_URL}" --build-arg "JWT_SECRET=${JWT_SECRET}" --build-arg
-          "ADMIN_USERNAME=${ADMIN_USERNAME}" --build-arg "ADMIN_PASSWORD=${ADMIN_PASSWORD}" --insecure --skip-tls-verify
-        continue-on-error: false
-  trivy-image:
-    runs-on: ubuntu-latest
-    container:
-      name: aquasec/trivy:latest
-      entrypoint:
-        - ''
-    env:
-      DOCKER_DRIVER: overlay2
-      NODE_VERSION: '24'
-      SAST_EXCLUDED_PATHS: backend/node_modules,frontend/node_modules,backend/dist,frontend/build
-      IMAGE_TAG: ghcr.io_IMAGE:v0.$CI_PIPELINE_IID
-      TRIVY_CACHE_DIR: .trivycache/
-      TRIVY_USERNAME: ghcr.io_USER
-      TRIVY_PASSWORD: ghcr.io_PASSWORD
-      TRIVY_AUTH_URL: ghcr.io
-      TRIVY_INSECURE: 'true'
     steps:
-      - name: Cache dependencies
-        uses: actions/cache@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          path: .trivycache/
-          key: ${{ runner.os }}-trivy-image
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: trivy-image
-        run: >-
-          trivy image --insecure --exit-code 1 --severity CRITICAL --cache-dir .trivycache/
-          $CI_REGISTRY_IMAGE:latest
-        continue-on-error: false
-  release_job:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=v0.${{ github.run_number }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ id.meta.outputs.tags }}
+          labels: ${{ id.meta.outputs.labels }}
+          build-args: |
+            VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}
+            ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+
+  trivy-image:
+    needs: build
     runs-on: ubuntu-latest
-    container: registry.gitlab.com/gitlab-org/release-cli:latest
-    env:
-      DOCKER_DRIVER: overlay2
-      NODE_VERSION: '24'
-      SAST_EXCLUDED_PATHS: backend/node_modules,frontend/node_modules,backend/dist,frontend/build
-      IMAGE_TAG: ghcr.io_IMAGE:v0.$CI_PIPELINE_IID
-      TRIVY_CACHE_DIR: .trivycache/
-      GIT_SSL_NO_VERIFY: '1'
-      GITLAB_SKIP_TLS_VERIFY: 'true'
-      SKIP_TLS_VERIFY: 'true'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: release job
-        run: echo "running release_job for v0.$CI_PIPELINE_IID"
-        continue-on-error: false
-env:
-  DOCKER_DRIVER: overlay2
-  NODE_VERSION: '24'
-  SAST_EXCLUDED_PATHS: backend/node_modules,frontend/node_modules,backend/dist,frontend/build
-  IMAGE_TAG: ghcr.io_IMAGE:v0.$CI_PIPELINE_IID
-  TRIVY_CACHE_DIR: .trivycache/
+      - name: Run Trivy Image Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          # Scan the image we just pushed
+          image-ref: 'ghcr.io/${{ github.repository }}:latest'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL'
+        env:
+          # Authenticate Trivy to pull from your private GHCR
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+  release_job:
+    needs: trivy-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Release
+        run: |
+          echo "Triggering release for v0.${{ github.run_number }}"
+          # If you want to create an actual GitHub Release:
+          # gh release create v0.${{ github.run_number }} --notes "Automated release"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
