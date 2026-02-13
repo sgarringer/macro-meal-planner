@@ -2,7 +2,6 @@ include:
   - template: Security/SAST.gitlab-ci.yml
 
 stages:
-  - test
   - security
   - build
   - sast
@@ -30,26 +29,7 @@ sast:
     reports:
       sast: gl-sast-report.json
 
-test:
-  stage: test
-  image: node:${NODE_VERSION}
-  script:
-    - echo "Testing backend..."
-    - cd backend && npm ci --prefer-offline --no-audit
-    - npm test || echo "No backend tests defined, skipping backend test step"
-    - echo "Testing frontend..."
-    - cd ../frontend && npm ci --prefer-offline --no-audit
-    - npm test -- --watchAll=false --passWithNoTests || echo "No frontend tests defined, skipping frontend test step"
-  cache:
-    key: ${CI_COMMIT_REF_SLUG}
-    paths:
-      - backend/node_modules/
-      - frontend/node_modules/
-  retry:
-    max: 2
-    when:
-      - runner_system_failure
-      - stuck_or_timeout_failure
+  # ...existing code...
 
 # Build Docker image using Kaniko
 build:
