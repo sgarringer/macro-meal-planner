@@ -3,8 +3,8 @@ include:
 
 stages:
   - test
+  - security
   - build
-  - build-test
   - sast
   - release
 
@@ -74,28 +74,7 @@ build:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH  # Run this job when commits are pushed or merged to the default branch
 
-# Build test image using Kaniko for test environment
-build-test:
-  stage: build-test
-  image: 
-    name: gcr.io/kaniko-project/executor:v1.14.0-debug
-    entrypoint: [""]
-  script:
-    - export VERSION=v0.$CI_PIPELINE_IID
-    - /kaniko/executor
-      --context "${CI_PROJECT_DIR}"
-      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
-      --destination "${CI_REGISTRY_IMAGE}:test-${VERSION}"
-      --destination "${CI_REGISTRY_IMAGE}:test-latest"
-      --build-arg "VITE_API_BASE_URL=${VITE_API_BASE_URL_TEST}"
-      --build-arg "JWT_SECRET=${JWT_SECRET_TEST}"
-      --build-arg "ADMIN_USERNAME=${ADMIN_USERNAME_TEST}"
-      --build-arg "ADMIN_PASSWORD=${ADMIN_PASSWORD_TEST}"
-      --insecure
-      --skip-tls-verify
-
-  rules:
-    - if: $CI_COMMIT_BRANCH == 'test'  # Run this job when commits are pushed or merged to the branch named test
+  # ...existing code...
 
 # Create a release with auto-incrementing version number
 release_job:
@@ -117,3 +96,30 @@ release_job:
     tag_name: 'v0.$CI_PIPELINE_IID'                # The version is incremented per pipeline.
     description: 'v0.$CI_PIPELINE_IID'
     ref: '$CI_COMMIT_SHA'                          # The tag is created from the pipeline SHA.
+
+# Dependency scanning using Trivy. This job scans the repository's backend
+# and frontend directories for dependency vulnerabilities and fails the
+# pipeline when HIGH or CRITICAL vulnerabilities are found.
+trivy-deps-scan:
+  stage: security
+  image: aquasec/trivy:0.43.2
+  variables:
+    TRIVY_SEVERITY: "CRITICAL,HIGH"
+  before_script:
+    - trivy --version
+    - apk add jq
+  script:
+    - EXIT=0
+    - trivy fs backend --scanners vuln --severity $TRIVY_SEVERITY --ignore-unfixed --skip-dirs node_modules --format gitlab --output trivy-deps-report-backend.json --exit-code 1 --no-progress || EXIT=$?
+    - trivy fs frontend --scanners vuln --severity $TRIVY_SEVERITY --ignore-unfixed --skip-dirs node_modules --format gitlab --output trivy-deps-report-frontend.json --exit-code 1 --no-progress || EXIT=$?
+    - jq -s '.[0] + .[1]' trivy-deps-report-backend.json trivy-deps-report-frontend.json > gl-dependency-scanning-report.json
+    - if [ "$EXIT" -ne 0 ]; then echo "Trivy found HIGH/CRITICAL vulnerabilities"; exit $EXIT; fi
+  artifacts:
+    reports:
+      dependency_scanning: gl-dependency-scanning-report.json
+    paths:
+      - gl-dependency-scanning-report.json
+  allow_failure: false
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
