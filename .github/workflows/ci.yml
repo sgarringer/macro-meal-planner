@@ -85,10 +85,17 @@ jobs:
     needs: trivy-image
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # This fixes the "not a git repository" error
+
       - name: Create Release
         run: |
           echo "Triggering release for v0.${{ github.run_number }}"
-          # Optional: Use the GitHub CLI to create an actual release
+          # Create a git tag first, then the release
+          git tag v0.${{ github.run_number }}
+          git push origin v0.${{ github.run_number }}
           gh release create "v0.${{ github.run_number }}" --generate-notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
