@@ -9,7 +9,8 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  NODE_VERSION: '24'
+  # GitLab ended at 50, GitHub is at 6. Offset = 45.
+  VERSION_OFFSET: 45
 
 jobs:
   trivy-fs:
@@ -17,7 +18,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Run Trivy FS Scan
         uses: aquasecurity/trivy-action@master
         with:
@@ -34,6 +34,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set Version
+        run: |
+          SYNCED_VERSION=$(( ${{ github.run_number }} + ${{ env.VERSION_OFFSET }} ))
+          echo "SYNCED_TAG=v0.${SYNCED_VERSION}" >> $GITHUB_ENV
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -48,7 +53,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
-            type=raw,value=v0.${{ github.run_number }}
+            type=raw,value=${{ env.SYNCED_TAG }}
           flavor: |
             latest=true
 
@@ -72,7 +77,6 @@ jobs:
       - name: Run Trivy Image Scan
         uses: aquasecurity/trivy-action@master
         with:
-          # We reference the image name via the meta output for consistency
           image-ref: 'ghcr.io/${{ github.repository }}:latest'
           format: 'table'
           exit-code: '1'
@@ -84,18 +88,27 @@ jobs:
   release_job:
     needs: trivy-image
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # This fixes the "not a git repository" error
+          fetch-depth: 0
 
-      - name: Create Release
+      - name: Create Git Tag and Release
         run: |
-          echo "Triggering release for v0.${{ github.run_number }}"
-          # Create a git tag first, then the release
-          git tag v0.${{ github.run_number }}
-          git push origin v0.${{ github.run_number }}
-          gh release create "v0.${{ github.run_number }}" --generate-notes
+          SYNCED_VERSION=$(( ${{ github.run_number }} + ${{ env.VERSION_OFFSET }} ))
+          TAG_NAME="v0.${SYNCED_VERSION}"
+          
+          echo "Triggering release for ${TAG_NAME}"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git tag ${TAG_NAME}
+          git push origin ${TAG_NAME}
+          
+          gh release create "${TAG_NAME}" --generate-notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
