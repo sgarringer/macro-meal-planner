@@ -31,23 +31,30 @@ A comprehensive meal planning application with AI-powered food analysis and macr
 
 ### Macro Goals & Meal Configuration
 
+<img src="image/README/1771011637395.png" alt="macros" width="400"/>
+
 - Macro goal setup interface (calories, protein, carbs, fat ratios for diets or custom )
 - Eating window configuration
 - Meal timing and percentage allocation
 
-### Phase 5: Food Catalog System
+### Food Catalog System
+
+<img src="image/README/1771011740663.png" alt="food" width="400"/>
 
 - Photo analysis of nutrition label (OpenAI/Ollama)
-- TODO: AI estimation for produce
 - Advanced search and filtering
 
-### Phase 6: Meal Planning Interface
+### Meal Planning Interface
+
+<img src="image/README/1771011780646.png" alt="planner" width="400"/>
 
 - Drag-and-drop meal planning
 - Real-time macro tracking
 - Copy week functionality
 
-### Phase 7: AI Integration
+### AI Integration
+
+<img src="image/README/1771011820023.png" alt="ai" width="400"/>
 
 - OpenAI and Ollama support
 - Meal suggestion system based on ingredients on hand and preferences
