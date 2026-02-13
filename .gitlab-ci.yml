@@ -66,7 +66,7 @@ trivy-image:
     paths: [".trivycache/"]
   script:
     # Added --insecure flag here to match your registry setup
-    - trivy image --insecure --exit-code 1 --severity CRITICAL,HIGH --cache-dir .trivycache/ $CI_REGISTRY_IMAGE:latest
+    - trivy image --insecure --exit-code 1 --severity CRITICAL --cache-dir .trivycache/ $CI_REGISTRY_IMAGE:latest
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 

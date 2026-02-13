@@ -1,0 +1,112 @@
+name: CI/CD Pipeline
+'on':
+  push:
+    branches:
+      - main
+      - master
+      - develop
+  pull_request:
+    branches:
+      - main
+      - master
+jobs:
+  trivy-fs:
+    runs-on: ubuntu-latest
+    container:
+      name: aquasec/trivy:latest
+      entrypoint:
+        - ''
+    env:
+      DOCKER_DRIVER: overlay2
+      NODE_VERSION: '24'
+      SAST_EXCLUDED_PATHS: backend/node_modules,frontend/node_modules,backend/dist,frontend/build
+      IMAGE_TAG: ghcr.io_IMAGE:v0.$CI_PIPELINE_IID
+      TRIVY_CACHE_DIR: .trivycache/
+    steps:
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: .trivycache/
+          key: ${{ runner.os }}-trivy-fs
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: trivy-fs
+        run: trivy fs --exit-code 1 --severity CRITICAL,HIGH --cache-dir .trivycache/ .
+        continue-on-error: false
+  build:
+    runs-on: ubuntu-latest
+    container:
+      name: gcr.io/kaniko-project/executor:v1.14.0-debug
+      entrypoint:
+        - ''
+    env:
+      DOCKER_DRIVER: overlay2
+      NODE_VERSION: '24'
+      SAST_EXCLUDED_PATHS: backend/node_modules,frontend/node_modules,backend/dist,frontend/build
+      IMAGE_TAG: ghcr.io_IMAGE:v0.$CI_PIPELINE_IID
+      TRIVY_CACHE_DIR: .trivycache/
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: build
+        run: >-
+          export VERSION=v0.$CI_PIPELINE_IID
+
+          /kaniko/executor --context "${CI_PROJECT_DIR}" --dockerfile "${CI_PROJECT_DIR}/Dockerfile" --destination
+          "${CI_REGISTRY_IMAGE}:${VERSION}" --destination "${CI_REGISTRY_IMAGE}:latest" --build-arg
+          "VITE_API_BASE_URL=${VITE_API_BASE_URL}" --build-arg "JWT_SECRET=${JWT_SECRET}" --build-arg
+          "ADMIN_USERNAME=${ADMIN_USERNAME}" --build-arg "ADMIN_PASSWORD=${ADMIN_PASSWORD}" --insecure --skip-tls-verify
+        continue-on-error: false
+  trivy-image:
+    runs-on: ubuntu-latest
+    container:
+      name: aquasec/trivy:latest
+      entrypoint:
+        - ''
+    env:
+      DOCKER_DRIVER: overlay2
+      NODE_VERSION: '24'
+      SAST_EXCLUDED_PATHS: backend/node_modules,frontend/node_modules,backend/dist,frontend/build
+      IMAGE_TAG: ghcr.io_IMAGE:v0.$CI_PIPELINE_IID
+      TRIVY_CACHE_DIR: .trivycache/
+      TRIVY_USERNAME: ghcr.io_USER
+      TRIVY_PASSWORD: ghcr.io_PASSWORD
+      TRIVY_AUTH_URL: ghcr.io
+      TRIVY_INSECURE: 'true'
+    steps:
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: .trivycache/
+          key: ${{ runner.os }}-trivy-image
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: trivy-image
+        run: >-
+          trivy image --insecure --exit-code 1 --severity CRITICAL --cache-dir .trivycache/
+          $CI_REGISTRY_IMAGE:latest
+        continue-on-error: false
+  release_job:
+    runs-on: ubuntu-latest
+    container: registry.gitlab.com/gitlab-org/release-cli:latest
+    env:
+      DOCKER_DRIVER: overlay2
+      NODE_VERSION: '24'
+      SAST_EXCLUDED_PATHS: backend/node_modules,frontend/node_modules,backend/dist,frontend/build
+      IMAGE_TAG: ghcr.io_IMAGE:v0.$CI_PIPELINE_IID
+      TRIVY_CACHE_DIR: .trivycache/
+      GIT_SSL_NO_VERIFY: '1'
+      GITLAB_SKIP_TLS_VERIFY: 'true'
+      SKIP_TLS_VERIFY: 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: release job
+        run: echo "running release_job for v0.$CI_PIPELINE_IID"
+        continue-on-error: false
+env:
+  DOCKER_DRIVER: overlay2
+  NODE_VERSION: '24'
+  SAST_EXCLUDED_PATHS: backend/node_modules,frontend/node_modules,backend/dist,frontend/build
+  IMAGE_TAG: ghcr.io_IMAGE:v0.$CI_PIPELINE_IID
+  TRIVY_CACHE_DIR: .trivycache/
