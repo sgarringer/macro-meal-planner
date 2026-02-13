@@ -8,7 +8,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # Using github.repository (e.g., username/repo-name)
   IMAGE_NAME: ${{ github.repository }}
   NODE_VERSION: '24'
 
@@ -30,8 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write # Required to push to GHCR
-
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -51,14 +49,16 @@ jobs:
           tags: |
             type=raw,value=latest
             type=raw,value=v0.${{ github.run_number }}
+          flavor: |
+            latest=true
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ id.meta.outputs.tags }}
-          labels: ${{ id.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}
             JWT_SECRET=${{ secrets.JWT_SECRET }}
@@ -72,13 +72,12 @@ jobs:
       - name: Run Trivy Image Scan
         uses: aquasecurity/trivy-action@master
         with:
-          # Scan the image we just pushed
+          # We reference the image name via the meta output for consistency
           image-ref: 'ghcr.io/${{ github.repository }}:latest'
           format: 'table'
           exit-code: '1'
           severity: 'CRITICAL'
         env:
-          # Authenticate Trivy to pull from your private GHCR
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
@@ -89,7 +88,7 @@ jobs:
       - name: Create Release
         run: |
           echo "Triggering release for v0.${{ github.run_number }}"
-          # If you want to create an actual GitHub Release:
-          # gh release create v0.${{ github.run_number }} --notes "Automated release"
+          # Optional: Use the GitHub CLI to create an actual release
+          gh release create "v0.${{ github.run_number }}" --generate-notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
