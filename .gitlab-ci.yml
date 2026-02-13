@@ -102,7 +102,7 @@ release_job:
 # pipeline when HIGH or CRITICAL vulnerabilities are found.
 trivy-deps-scan:
   stage: security
-  image: aquasec/trivy:0.43.2
+  image: aquasec/trivy:latest
   variables:
     TRIVY_SEVERITY: "CRITICAL,HIGH"
   before_script:
