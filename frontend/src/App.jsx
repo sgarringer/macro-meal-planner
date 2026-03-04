@@ -1,6 +1,5 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext.jsx';
 import { ThemeProvider } from './contexts/ThemeContext.jsx';
 import Layout from './layouts/Layout';
 import Login from './pages/Login';
@@ -13,17 +12,29 @@ import MealPlanner from './pages/MealPlanner';
 import LinkedFoods from './pages/LinkedFoods';
 import AIConfig from './pages/AIConfig';
 import ExportData from './pages/ExportData';
+import { AuthProvider, useAuth } from './contexts/AuthContext.jsx'; // Add useAuth here
+
 
 // Protected route component
 const ProtectedRoute = ({ children }) => {
-  const token = localStorage.getItem('authToken');
-  return token ? children : <Navigate to="/login" replace />;
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) {
+    return <div>Loading...</div>; // Or a spinner
+  }
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+  return children;
 };
 
 // Public route component (redirect if authenticated)
 const PublicRoute = ({ children }) => {
-  const token = localStorage.getItem('authToken');
-  return token ? <Navigate to="/dashboard" replace /> : children;
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
+  // If already logged in, don't show Login/Register pages
+  return isAuthenticated ? <Navigate to="/dashboard" replace /> : children;
 };
 
 function App() {

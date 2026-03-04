@@ -7,10 +7,82 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const { execFile } = require('child_process');
+const { auth } = require('express-openid-connect');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET;
+
+// Set up Auth0 Authentication
+const config = {
+  authRequired: false, // Set to true to protect ALL routes
+  auth0Logout: true,
+  secret: process.env.SECRET,
+  baseURL: process.env.BASE_URL,
+  clientID: process.env.CLIENT_ID,
+  clientSecret: process.env.CLIENT_SECRET,
+  issuerBaseURL: process.env.ISSUER_BASE_URL,
+  authorizationParams: {
+    response_type: 'code',
+    scope: 'openid profile email', // Explicitly ask for email
+  },
+afterCallback: async (req, res, session, decodedToken) => {
+  return new Promise((resolve, reject) => {
+    // sub is the unique ID from Auth0, always present
+    const { sub, email, nickname, name } = decodedToken;
+
+    // SAFEGUARDS: Use sub as fallback if email/name are missing
+    const userEmail = email || `${sub}@auth0.local`;
+    
+    // Create a username safely
+    let userName = nickname || name;
+    if (!userName) {
+      userName = userEmail.includes('@') ? userEmail.split('@')[0] : sub;
+    }
+
+    // Check if user exists in your SQLite DB
+    db.get('SELECT id FROM users WHERE email = ?', [userEmail], (err, row) => {
+      if (err) return reject(err);
+
+      if (row) {
+        // Found existing user, link them
+        session.local_user_id = row.id;
+        resolve(session);
+      } else {
+        // New user: Insert into DB
+        db.run(
+          'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
+          [userName, userEmail, 'SSO_USER'],
+          function (err) {
+            if (err) return reject(err);
+            session.local_user_id = this.lastID;
+            resolve(session);
+          }
+        );
+      }
+    });
+  });
+},
+  session: {
+    cookie: {
+      sameSite: 'Lax', // Allow the cookie to be sent after the redirect
+      secure: false,   // Set to true only if using HTTPS (not needed for localhost)
+    }
+  }
+};
+
+app.use(auth(config));
+
+app.get('/', (req, res) => {
+  res.redirect('http://localhost:5173/dashboard'); 
+});
+
+app.use((req, res, next) => {
+  console.log('Session Cookie Present:', !!req.cookies?.appSession);
+  console.log('Is Authenticated:', req.oidc?.isAuthenticated());
+  next();
+});
 
 // Lightweight in-memory upload handler for small images (nutrition labels)
 const upload = multer({
@@ -256,8 +328,7 @@ db.serialize(() => {
 // CORS
 const defaultAllowedOrigins = [
   'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'https://5173-5f449670-b992-4b6b-92c2-a0cb7f1ade5f.proxy.daytona.works'
+  'http://127.0.0.1:5173'
 ];
 const envAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
   .split(',')
@@ -294,110 +365,24 @@ app.get('/api/health', (req, res) => {
 });
 
 // Auth routes
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const { username, email, password } = req.body;
-    
-    if (!username || !email || !password) {
-      return res.status(400).json({ error: 'All fields are required' });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 12);
-    
-    db.run('INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)', 
-      [username, email, passwordHash], function(err) {
-      if (err) {
-        if (err.message.includes('UNIQUE constraint failed')) {
-          return res.status(409).json({ error: 'Username or email already exists' });
-        return res.status(500).json({ error: 'Registration failed' });
+app.get('/api/auth/me', (req, res) => {
+  if (req.oidc.isAuthenticated()) {
+    // This matches the format your frontend previously expected
+    res.json({
+      user: {
+        id: req.oidc.user.sub, // Auth0's unique ID
+        username: req.oidc.user.nickname,
+        email: req.oidc.user.email,
+        role: 'user'
       }
-          }
-
-      const token = jwt.sign(
-        { userId: this.lastID, username, email, role: 'user' },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      res.status(201).json({
-        message: 'User created successfully',
-        token,
-        user: { id: this.lastID, username, email, role: 'user' }
-      });
     });
-  } catch (error) {
-    res.status(500).json({ error: 'Server error' });
+  } else {
+    res.status(401).json({ error: 'Not authenticated' });
   }
-});
-
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
-    }
-
-    db.get('SELECT * FROM users WHERE username = ?', [username], async (err, user) => {
-      if (err || !user) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
-
-      const isValidPassword = await bcrypt.compare(password, user.password_hash);
-      if (!isValidPassword) {
-        return res.status(401).json({ error: 'Invalid credentials' });
-      }
-
-      const token = jwt.sign(
-        { userId: user.id, username: user.username, email: user.email, role: 'user' },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      res.json({
-        message: 'Login successful',
-        token,
-        user: { id: user.id, username: user.username, email: user.email, role: 'user' }
-      });
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// Authentication middleware
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-    req.user = user;
-    next();
-  });
-};
-
-app.get('/api/auth/me', authenticateToken, (req, res) => {
-  res.json({ user: { id: req.user.userId, username: req.user.username, email: req.user.email } });
 });
 
 // Profile routes
-app.get('/api/profile', authenticateToken, (req, res) => {
-  res.json({ 
-    profile: {
-      macro_protein_g: 150,
-      macro_carbs_g: 200,
-      macro_fat_g: 65,
-      macro_calories: 2000
-    }
-  });
-});
+
 
 // Common foods
 app.get('/api/foods/common', (req, res) => {
@@ -412,8 +397,10 @@ app.get('/api/foods/common', (req, res) => {
 });
 
 // Macro goals routes
-app.get('/api/macro-goals', authenticateToken, (req, res) => {
-  db.get('SELECT * FROM user_macro_goals WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, row) => {
+app.get('/api/macro-goals', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+  db.get('SELECT * FROM user_macro_goals WHERE user_id = ? AND is_active = 1', [userId], (err, row) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
@@ -421,7 +408,9 @@ app.get('/api/macro-goals', authenticateToken, (req, res) => {
   });
 });
 
-app.post('/api/macro-goals', authenticateToken, (req, res) => {
+app.post('/api/macro-goals', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { calories, protein, carbs, fat, fiber } = req.body;
   const track_net_carbs = req.body.track_net_carbs || 0;
   
@@ -430,14 +419,14 @@ app.post('/api/macro-goals', authenticateToken, (req, res) => {
   }
 
   // Deactivate existing goals
-  db.run('UPDATE user_macro_goals SET is_active = 0 WHERE user_id = ?', [req.user.userId], (err) => {
+  db.run('UPDATE user_macro_goals SET is_active = 0 WHERE user_id = ?', [userId], (err) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
 
     // Insert new goals
     db.run('INSERT INTO user_macro_goals (user_id, calories, protein, carbs, fat, fiber, track_net_carbs) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [req.user.userId, calories, protein, carbs, fat, fiber || 0, track_net_carbs], function(err) {
+      [userId, calories, protein, carbs, fat, fiber || 0, track_net_carbs], function(err) {
       if (err) {
         return res.status(500).json({ error: 'Failed to save macro goals' });
       }
@@ -446,7 +435,7 @@ app.post('/api/macro-goals', authenticateToken, (req, res) => {
         message: 'Macro goals saved successfully',
         goals: {
           id: this.lastID,
-          user_id: req.user.userId,
+          user_id: userId,
           calories,
           protein,
           carbs,
@@ -461,8 +450,10 @@ app.post('/api/macro-goals', authenticateToken, (req, res) => {
 });
 
 // Meal Calorie Allocations routes
-app.get('/api/meal-calorie-allocations', authenticateToken, (req, res) => {
-  db.get('SELECT * FROM meal_calorie_allocations WHERE user_id = ?', [req.user.userId], (err, row) => {
+app.get('/api/meal-calorie-allocations', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+  db.get('SELECT * FROM meal_calorie_allocations WHERE user_id = ?', [userId], (err, row) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
@@ -485,7 +476,9 @@ app.get('/api/meal-calorie-allocations', authenticateToken, (req, res) => {
   });
 });
 
-app.post('/api/meal-calorie-allocations', authenticateToken, (req, res) => {
+app.post('/api/meal-calorie-allocations', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { total_daily_calories, meals_ratio, snacks_ratio, use_auto_calculation, custom_allocations } = req.body;
 
   if (!total_daily_calories || meals_ratio === undefined || snacks_ratio === undefined) {
@@ -496,7 +489,7 @@ app.post('/api/meal-calorie-allocations', authenticateToken, (req, res) => {
   const customAllocsJson = custom_allocations ? JSON.stringify(custom_allocations) : null;
 
   // Check if allocation already exists
-  db.get('SELECT id FROM meal_calorie_allocations WHERE user_id = ?', [req.user.userId], (err, existingRow) => {
+  db.get('SELECT id FROM meal_calorie_allocations WHERE user_id = ?', [userId], (err, existingRow) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
@@ -504,7 +497,7 @@ app.post('/api/meal-calorie-allocations', authenticateToken, (req, res) => {
     if (existingRow) {
       // Update existing
       db.run('UPDATE meal_calorie_allocations SET total_daily_calories = ?, meals_ratio = ?, snacks_ratio = ?, use_auto_calculation = ?, custom_allocations = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?',
-        [total_daily_calories, meals_ratio, snacks_ratio, useAuto, customAllocsJson, req.user.userId], function(err) {
+        [total_daily_calories, meals_ratio, snacks_ratio, useAuto, customAllocsJson, userId], function(err) {
         if (err) {
           return res.status(500).json({ error: 'Failed to update meal calorie allocations' });
         }
@@ -513,7 +506,7 @@ app.post('/api/meal-calorie-allocations', authenticateToken, (req, res) => {
     } else {
       // Insert new
       db.run('INSERT INTO meal_calorie_allocations (user_id, total_daily_calories, meals_ratio, snacks_ratio, use_auto_calculation, custom_allocations) VALUES (?, ?, ?, ?, ?, ?)',
-        [req.user.userId, total_daily_calories, meals_ratio, snacks_ratio, useAuto, customAllocsJson], function(err) {
+        [userId, total_daily_calories, meals_ratio, snacks_ratio, useAuto, customAllocsJson], function(err) {
         if (err) {
           return res.status(500).json({ error: 'Failed to save meal calorie allocations' });
         }
@@ -523,13 +516,15 @@ app.post('/api/meal-calorie-allocations', authenticateToken, (req, res) => {
   });
 });
 
-app.get('/api/meals/calorie-targets', authenticateToken, (req, res) => {
-  db.get('SELECT * FROM user_macro_goals WHERE user_id = ? AND is_active = 1', [req.user.userId], (err, macroGoals) => {
+app.get('/api/meals/calorie-targets', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+  db.get('SELECT * FROM user_macro_goals WHERE user_id = ? AND is_active = 1', [userId], (err, macroGoals) => {
     if (err || !macroGoals) {
       return res.status(400).json({ error: 'No active macro goals found. Please set macro goals first.' });
     }
 
-    db.get('SELECT * FROM meal_calorie_allocations WHERE user_id = ?', [req.user.userId], (err, allocation) => {
+    db.get('SELECT * FROM meal_calorie_allocations WHERE user_id = ?', [userId], (err, allocation) => {
       if (err) {
         return res.status(500).json({ error: 'Database error' });
       }
@@ -540,7 +535,7 @@ app.get('/api/meals/calorie-targets', authenticateToken, (req, res) => {
       const snacksRatio = allocation?.snacks_ratio || 0.25;
       const useAutoCalculation = allocation?.use_auto_calculation !== 0; // SQLite boolean is 0/1
 
-      db.all('SELECT * FROM meals WHERE user_id = ? ORDER BY time_start', [req.user.userId], (err, meals) => {
+      db.all('SELECT * FROM meals WHERE user_id = ? ORDER BY time_start', [userId], (err, meals) => {
         if (err) {
           return res.status(500).json({ error: 'Database error' });
         }
@@ -593,16 +588,19 @@ app.get('/api/meals/calorie-targets', authenticateToken, (req, res) => {
 });
 
 // Meals routes
-app.get('/api/meals', authenticateToken, (req, res) => {
-  db.all('SELECT * FROM meals WHERE user_id = ? ORDER BY time_start', [req.user.userId], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: 'Database error' });
-    }
+app.get('/api/meals', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  // Use the ID we attached in afterCallback
+  const userId = req.appSession.local_user_id;
+  db.all('SELECT * FROM meals WHERE user_id = ?', [userId], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
-app.post('/api/meals', authenticateToken, (req, res) => {
+app.post('/api/meals', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { name, type, time_start, time_end, protein_percentage, carbs_percentage, fat_percentage, preferences } = req.body;
   
   if (!name || !type || !time_start || !time_end) {
@@ -610,7 +608,7 @@ app.post('/api/meals', authenticateToken, (req, res) => {
   }
 
   db.run('INSERT INTO meals (user_id, name, type, time_start, time_end, protein_percentage, carbs_percentage, fat_percentage, preferences) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [req.user.userId, name, type, time_start, time_end, protein_percentage || 0, carbs_percentage || 0, fat_percentage || 0, preferences], function(err) {
+    [userId, name, type, time_start, time_end, protein_percentage || 0, carbs_percentage || 0, fat_percentage || 0, preferences], function(err) {
     if (err) {
       return res.status(500).json({ error: 'Failed to create meal' });
     }
@@ -619,7 +617,7 @@ app.post('/api/meals', authenticateToken, (req, res) => {
       message: 'Meal created successfully',
       meal: {
         id: this.lastID,
-        user_id: req.user.userId,
+        user_id: userId,
         name,
         type,
         time_start,
@@ -633,12 +631,14 @@ app.post('/api/meals', authenticateToken, (req, res) => {
   });
 });
 
-app.put('/api/meals/:id', authenticateToken, (req, res) => {
+app.put('/api/meals/:id', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { id } = req.params;
   const { name, type, time_start, time_end, protein_percentage, carbs_percentage, fat_percentage, preferences } = req.body;
   
   db.run('UPDATE meals SET name = ?, type = ?, time_start = ?, time_end = ?, protein_percentage = ?, carbs_percentage = ?, fat_percentage = ?, preferences = ? WHERE id = ? AND user_id = ?',
-    [name, type, time_start, time_end, protein_percentage || 0, carbs_percentage || 0, fat_percentage || 0, preferences, id, req.user.userId], function(err) {
+    [name, type, time_start, time_end, protein_percentage || 0, carbs_percentage || 0, fat_percentage || 0, preferences, id, userId], function(err) {
     if (err) {
       return res.status(500).json({ error: 'Failed to update meal' });
     }
@@ -651,10 +651,11 @@ app.put('/api/meals/:id', authenticateToken, (req, res) => {
   });
 });
 
-app.delete('/api/meals/:id', authenticateToken, (req, res) => {
-  const { id } = req.params;
+app.delete('/api/meals/:id', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   
-  db.run('DELETE FROM meals WHERE id = ? AND user_id = ?', [req.params.id, req.user.userId], function(err) {
+  db.run('DELETE FROM meals WHERE id = ? AND user_id = ?', [req.params.id, userId], function(err) {
     if (err) {
       return res.status(500).json({ error: 'Failed to delete meal' });
     }
@@ -668,7 +669,9 @@ app.delete('/api/meals/:id', authenticateToken, (req, res) => {
 });
 
 // Foods routes
-app.get('/api/foods', authenticateToken, (req, res) => {
+app.get('/api/foods', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { search, type } = req.query;
   let query = `
     SELECT f.*, COALESCE(ufo.active, f.active, 1) AS active
@@ -677,7 +680,7 @@ app.get('/api/foods', authenticateToken, (req, res) => {
     WHERE (f.user_id = ? OR f.user_id IS NULL)
       AND COALESCE(ufo.active, f.active, 1) = 1
   `;
-  let params = [req.user.userId, req.user.userId];
+  let params = [userId, userId];
   
   if (search) {
     query += ' AND f.name LIKE ?';
@@ -686,7 +689,7 @@ app.get('/api/foods', authenticateToken, (req, res) => {
   
   if (type === 'user') {
     query += ' AND f.user_id = ?';
-    params.push(req.user.userId);
+    params.push(userId);
   } else if (type === 'common') {
     query += ' AND f.user_id IS NULL';
   }
@@ -702,7 +705,9 @@ app.get('/api/foods', authenticateToken, (req, res) => {
 });
 
 // Unified foods search (regular + linked) to reduce multiple fetches
-app.get('/api/foods/all', authenticateToken, (req, res) => {
+app.get('/api/foods/all', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { search } = req.query;
 
   // Base foods query (active only)
@@ -713,7 +718,7 @@ app.get('/api/foods/all', authenticateToken, (req, res) => {
     WHERE (f.user_id = ? OR f.user_id IS NULL)
       AND COALESCE(ufo.active, f.active, 1) = 1
   `;
-  const foodsParams = [req.user.userId, req.user.userId];
+  const foodsParams = [userId, userId];
   if (search) {
     foodsQuery += ' AND f.name LIKE ?';
     foodsParams.push(`%${search}%`);
@@ -736,7 +741,7 @@ app.get('/api/foods/all', authenticateToken, (req, res) => {
     LEFT JOIN foods f ON lfc.food_id = f.id
     WHERE lf.user_id = ?
   `;
-  const linkedParams = [req.user.userId];
+  const linkedParams = [userId];
   if (search) {
     linkedQuery += ' AND lf.name LIKE ?';
     linkedParams.push(`%${search}%`);
@@ -768,7 +773,9 @@ app.get('/api/foods/all', authenticateToken, (req, res) => {
   });
 });
 
-app.post('/api/foods', authenticateToken, (req, res) => {
+app.post('/api/foods', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving } = req.body;
   const isMissing = (v) => v === undefined || v === null || v === '';
   
@@ -777,7 +784,7 @@ app.post('/api/foods', authenticateToken, (req, res) => {
   }
 
   db.run('INSERT INTO foods (user_id, name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [req.user.userId, name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving || 0], function(err) {
+    [userId, name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving || 0], function(err) {
     if (err) {
       return res.status(500).json({ error: 'Failed to create food' });
     }
@@ -786,7 +793,7 @@ app.post('/api/foods', authenticateToken, (req, res) => {
       message: 'Food created successfully',
       food: {
         id: this.lastID,
-        user_id: req.user.userId,
+        user_id: userId,
         name,
         brand,
         serving_size,
@@ -800,7 +807,9 @@ app.post('/api/foods', authenticateToken, (req, res) => {
   });
 });
 
-app.put('/api/foods/:id', authenticateToken, (req, res) => {
+app.put('/api/foods/:id', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { id } = req.params;
   const { name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving } = req.body;
   const isMissing = (v) => v === undefined || v === null || v === '';
@@ -810,7 +819,7 @@ app.put('/api/foods/:id', authenticateToken, (req, res) => {
   }
 
   // First verify the food belongs to the user (can't edit common foods)
-  db.get('SELECT * FROM foods WHERE id = ? AND user_id = ?', [id, req.user.userId], (err, food) => {
+  db.get('SELECT * FROM foods WHERE id = ? AND user_id = ?', [id, userId], (err, food) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
@@ -819,7 +828,7 @@ app.put('/api/foods/:id', authenticateToken, (req, res) => {
     }
 
     db.run('UPDATE foods SET name = ?, brand = ?, serving_size = ?, calories_per_serving = ?, protein_per_serving = ?, carbs_per_serving = ?, fat_per_serving = ?, fiber_per_serving = ? WHERE id = ? AND user_id = ?',
-      [name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving || 0, id, req.user.userId], function(err) {
+      [name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving || 0, id, userId], function(err) {
       if (err) {
         return res.status(500).json({ error: 'Failed to update food' });
       }
@@ -828,7 +837,7 @@ app.put('/api/foods/:id', authenticateToken, (req, res) => {
         message: 'Food updated successfully',
         food: {
           id: parseInt(id),
-          user_id: req.user.userId,
+          user_id: userId,
           name,
           brand,
           serving_size,
@@ -844,7 +853,9 @@ app.put('/api/foods/:id', authenticateToken, (req, res) => {
 });
 
 // Toggle food active status (user-owned updates in foods, common via per-user override)
-app.put('/api/foods/:id/toggle', authenticateToken, (req, res) => {
+app.put('/api/foods/:id/toggle', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { id } = req.params;
 
   db.get('SELECT id, user_id, active, is_common FROM foods WHERE id = ?', [id], (err, food) => {
@@ -855,13 +866,13 @@ app.put('/api/foods/:id/toggle', authenticateToken, (req, res) => {
       return res.status(404).json({ error: 'Food not found' });
     }
 
-    const isOwner = food.user_id === req.user.userId;
+    const isOwner = food.user_id === userId;
     const isCommon = food.user_id === null || food.is_common;
 
     // User-owned: flip directly on foods table
     if (isOwner) {
       const newActive = food.active ? 0 : 1;
-      db.run('UPDATE foods SET active = ? WHERE id = ? AND user_id = ?', [newActive, id, req.user.userId], function(updateErr) {
+      db.run('UPDATE foods SET active = ? WHERE id = ? AND user_id = ?', [newActive, id, userId], function(updateErr) {
         if (updateErr) {
           return res.status(500).json({ error: 'Failed to update food status' });
         }
@@ -872,7 +883,7 @@ app.put('/api/foods/:id/toggle', authenticateToken, (req, res) => {
 
     // Common food: upsert per-user override
     if (isCommon) {
-      db.get('SELECT id, active FROM user_food_overrides WHERE user_id = ? AND food_id = ?', [req.user.userId, id], (ovErr, override) => {
+      db.get('SELECT id, active FROM user_food_overrides WHERE user_id = ? AND food_id = ?', [userId, id], (ovErr, override) => {
         if (ovErr) {
           return res.status(500).json({ error: 'Database error' });
         }
@@ -885,7 +896,7 @@ app.put('/api/foods/:id/toggle', authenticateToken, (req, res) => {
           ON CONFLICT(user_id, food_id) DO UPDATE SET active = excluded.active, created_at = CURRENT_TIMESTAMP
         `;
 
-        db.run(upsertSql, [req.user.userId, id, newActive], function(upsertErr) {
+        db.run(upsertSql, [userId, id, newActive], function(upsertErr) {
           if (upsertErr) {
             return res.status(500).json({ error: 'Failed to update food status' });
           }
@@ -901,7 +912,9 @@ app.put('/api/foods/:id/toggle', authenticateToken, (req, res) => {
 });
 
 // Parse nutrition label image with AI (prefers Ollama vision, falls back to OpenAI vision)
-app.post('/api/foods/label/parse', authenticateToken, upload.single('image'), async (req, res) => {
+app.post('/api/foods/label/parse', upload.single('image'), async (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No image uploaded' });
@@ -911,7 +924,7 @@ app.post('/api/foods/label/parse', authenticateToken, upload.single('image'), as
 
     // Load AI config
     const config = await new Promise((resolve) => {
-      db.get('SELECT * FROM ai_config WHERE user_id = ?', [req.user.userId], (err, row) => resolve(row));
+      db.get('SELECT * FROM ai_config WHERE user_id = ?', [userId], (err, row) => resolve(row));
     });
 
     // Local timeout helper (default 60s)
@@ -1052,11 +1065,13 @@ app.post('/api/foods/label/parse', authenticateToken, upload.single('image'), as
   }
 });
 
-app.delete('/api/foods/:id', authenticateToken, (req, res) => {
+app.delete('/api/foods/:id', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { id } = req.params;
 
   // First verify the food belongs to the user (can't delete common foods)
-  db.get('SELECT * FROM foods WHERE id = ? AND user_id = ?', [id, req.user.userId], (err, food) => {
+  db.get('SELECT * FROM foods WHERE id = ? AND user_id = ?', [id, userId], (err, food) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
@@ -1064,7 +1079,7 @@ app.delete('/api/foods/:id', authenticateToken, (req, res) => {
       return res.status(404).json({ error: 'Food not found or you do not have permission to delete it' });
     }
 
-    db.run('DELETE FROM foods WHERE id = ? AND user_id = ?', [id, req.user.userId], function(err) {
+    db.run('DELETE FROM foods WHERE id = ? AND user_id = ?', [id, userId], function(err) {
       if (err) {
         return res.status(500).json({ error: 'Failed to delete food' });
       }
@@ -1075,7 +1090,9 @@ app.delete('/api/foods/:id', authenticateToken, (req, res) => {
 });
 
 // Meal plans routes
-  app.get('/api/meal-plans', authenticateToken, (req, res) => {
+app.get('/api/meal-plans', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { date } = req.query;
   let query = `
     SELECT mp.*, m.name as meal_name, m.type as meal_type, f.name as food_name, f.serving_size, 
@@ -1085,7 +1102,7 @@ app.delete('/api/foods/:id', authenticateToken, (req, res) => {
     LEFT JOIN foods f ON mp.food_id = f.id
     WHERE mp.user_id = ?
   `;
-  let params = [req.user.userId];
+  let params = [userId];
   
   if (date) {
     query += ' AND mp.date = ?';
@@ -1102,7 +1119,9 @@ app.delete('/api/foods/:id', authenticateToken, (req, res) => {
   });
 });
 
-app.post('/api/meal-plans', authenticateToken, (req, res) => {
+app.post('/api/meal-plans', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { date, meal_id, food_id, quantity } = req.body;
   
   if (!date || !meal_id || !food_id || !quantity) {
@@ -1110,7 +1129,7 @@ app.post('/api/meal-plans', authenticateToken, (req, res) => {
   }
 
   db.run('INSERT INTO meal_plans (user_id, date, meal_id, food_id, quantity) VALUES (?, ?, ?, ?, ?)',
-    [req.user.userId, date, meal_id, food_id, quantity], function(err) {
+    [userId, date, meal_id, food_id, quantity], function(err) {
     if (err) {
       return res.status(500).json({ error: 'Failed to create meal plan' });
     }
@@ -1119,7 +1138,7 @@ app.post('/api/meal-plans', authenticateToken, (req, res) => {
       message: 'Meal plan created successfully',
       meal_plan: {
         id: this.lastID,
-        user_id: req.user.userId,
+        user_id: userId,
         date,
         meal_id,
         food_id,
@@ -1130,7 +1149,9 @@ app.post('/api/meal-plans', authenticateToken, (req, res) => {
 });
 
 // Add linked food to meal by expanding components
-app.post('/api/meal-plans/add-linked', authenticateToken, (req, res) => {
+app.post('/api/meal-plans/add-linked', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { date, meal_id, linked_food_id, quantity } = req.body;
   if (!date || !meal_id || !linked_food_id || !quantity) {
     return res.status(400).json({ error: 'Date, meal_id, linked_food_id, and quantity are required' });
@@ -1141,7 +1162,7 @@ app.post('/api/meal-plans/add-linked', authenticateToken, (req, res) => {
     FROM linked_food_components lfc
     JOIN linked_foods lf ON lfc.linked_food_id = lf.id
     WHERE lf.id = ? AND lf.user_id = ?
-  `, [linked_food_id, req.user.userId], (err, rows) => {
+  `, [linked_food_id, userId], (err, rows) => {
     if (err) {
       return res.status(500).json({ error: 'Database error' });
     }
@@ -1154,7 +1175,7 @@ app.post('/api/meal-plans/add-linked', authenticateToken, (req, res) => {
       try {
         rows.forEach(row => {
           const q = row.component_qty * quantity;
-          stmt.run(req.user.userId, date, meal_id, row.food_id, q);
+          stmt.run(userId, date, meal_id, row.food_id, q);
         });
         stmt.finalize(err2 => {
           if (err2) return res.status(500).json({ error: 'Failed to add linked food components' });
@@ -1169,7 +1190,9 @@ app.post('/api/meal-plans/add-linked', authenticateToken, (req, res) => {
 });
 
 // Update meal plan quantity
-app.put('/api/meal-plans/:id', authenticateToken, (req, res) => {
+app.put('/api/meal-plans/:id', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { id } = req.params;
   const { quantity } = req.body;
 
@@ -1177,7 +1200,7 @@ app.put('/api/meal-plans/:id', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'Invalid quantity' });
   }
 
-  db.run('UPDATE meal_plans SET quantity = ? WHERE id = ? AND user_id = ?', [quantity, id, req.user.userId], function(err) {
+  db.run('UPDATE meal_plans SET quantity = ? WHERE id = ? AND user_id = ?', [quantity, id, userId], function(err) {
     if (err) {
       return res.status(500).json({ error: 'Failed to update meal plan' });
     }
@@ -1191,7 +1214,9 @@ app.put('/api/meal-plans/:id', authenticateToken, (req, res) => {
 });
 
 // Move food between meals
-app.post('/api/meal-plans/:id/move', authenticateToken, (req, res) => {
+app.post('/api/meal-plans/:id/move', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { id } = req.params;
   const { newMealId } = req.body;
 
@@ -1199,7 +1224,7 @@ app.post('/api/meal-plans/:id/move', authenticateToken, (req, res) => {
     return res.status(400).json({ error: 'New meal ID is required' });
   }
 
-  db.run('UPDATE meal_plans SET meal_id = ? WHERE id = ? AND user_id = ?', [newMealId, id, req.user.userId], function(err) {
+  db.run('UPDATE meal_plans SET meal_id = ? WHERE id = ? AND user_id = ?', [newMealId, id, userId], function(err) {
     if (err) {
       return res.status(500).json({ error: 'Failed to move meal plan' });
     }
@@ -1212,10 +1237,12 @@ app.post('/api/meal-plans/:id/move', authenticateToken, (req, res) => {
   });
 });
 
-app.delete('/api/meal-plans/:id', authenticateToken, (req, res) => {
+app.delete('/api/meal-plans/:id', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { id } = req.params;
   
-  db.run('DELETE FROM meal_plans WHERE id = ? AND user_id = ?', [id, req.user.userId], function(err) {
+  db.run('DELETE FROM meal_plans WHERE id = ? AND user_id = ?', [id, userId], function(err) {
     if (err) {
       return res.status(500).json({ error: 'Failed to delete meal plan' });
     }
@@ -1229,320 +1256,335 @@ app.delete('/api/meal-plans/:id', authenticateToken, (req, res) => {
 });
 
 // Linked Foods routes
-  app.get('/api/linked-foods', authenticateToken, (req, res) => {
-    db.all(`
-      SELECT lf.*, 
-             GROUP_CONCAT(
-               json_object('id', f.id, 'name', f.name, 'quantity', lfc.quantity, 
-                          'calories_per_serving', f.calories_per_serving,
-                          'protein_per_serving', f.protein_per_serving,
-                          'carbs_per_serving', f.carbs_per_serving,
-                          'fat_per_serving', f.fat_per_serving)
-             ) as components
-      FROM linked_foods lf
-      LEFT JOIN linked_food_components lfc ON lf.id = lfc.linked_food_id
-      LEFT JOIN foods f ON lfc.food_id = f.id
-      WHERE lf.user_id = ?
-      GROUP BY lf.id
-      ORDER BY lf.created_at DESC
-    `, [req.user.userId], (err, rows) => {
+app.get('/api/linked-foods',  (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+  db.all(`
+    SELECT lf.*, 
+            GROUP_CONCAT(
+              json_object('id', f.id, 'name', f.name, 'quantity', lfc.quantity, 
+                        'calories_per_serving', f.calories_per_serving,
+                        'protein_per_serving', f.protein_per_serving,
+                        'carbs_per_serving', f.carbs_per_serving,
+                        'fat_per_serving', f.fat_per_serving)
+            ) as components
+    FROM linked_foods lf
+    LEFT JOIN linked_food_components lfc ON lf.id = lfc.linked_food_id
+    LEFT JOIN foods f ON lfc.food_id = f.id
+    WHERE lf.user_id = ?
+    GROUP BY lf.id
+    ORDER BY lf.created_at DESC
+  `, [userId], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
+    
+    const linkedFoods = rows.map(row => ({
+      ...row,
+      components: row.components ? JSON.parse(`[${row.components}]`) : []
+    }));
+    
+    res.json(linkedFoods);
+  });
+});
+
+app.post('/api/linked-foods', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+  const { name, description, components } = req.body;
+  
+  if (!name || !components || components.length === 0) {
+    return res.status(400).json({ error: 'Name and at least one component are required' });
+  }
+
+  db.serialize(() => {
+    db.run('INSERT INTO linked_foods (user_id, name, description) VALUES (?, ?, ?)'
+      , [userId, name, description], function(err) {
       if (err) {
-        return res.status(500).json({ error: 'Database error' });
+        return res.status(500).json({ error: 'Failed to create linked food' });
       }
       
-      const linkedFoods = rows.map(row => ({
-        ...row,
-        components: row.components ? JSON.parse(`[${row.components}]`) : []
-      }));
+      const linkedFoodId = this.lastID;
       
-      res.json(linkedFoods);
+      // Insert components
+      const componentPromises = components.map(component => {
+        return new Promise((resolve, reject) => {
+          db.run('INSERT INTO linked_food_components (linked_food_id, food_id, quantity) VALUES (?, ?, ?)'
+            , [linkedFoodId, component.food_id, component.quantity], function(err) {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      });
+      
+      Promise.all(componentPromises)
+        .then(() => {
+          res.status(201).json({
+            message: 'Linked food created successfully',
+            linked_food: {
+              id: linkedFoodId,
+              user_id: userId,
+              name,
+              description,
+              components
+            }
+          });
+        })
+        .catch(err => {
+          res.status(500).json({ error: 'Failed to add components' });
+        });
     });
   });
+});
 
-    app.post('/api/linked-foods', authenticateToken, (req, res) => {
-      const { name, description, components } = req.body;
-      
-      if (!name || !components || components.length === 0) {
-        return res.status(400).json({ error: 'Name and at least one component are required' });
-      }
+// Update an existing linked food
+app.put('/api/linked-foods/:id', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+  const { id } = req.params;
+  const { name, description, components } = req.body;
 
-      db.serialize(() => {
-        db.run('INSERT INTO linked_foods (user_id, name, description) VALUES (?, ?, ?)'
-          , [req.user.userId, name, description], function(err) {
-          if (err) {
-            return res.status(500).json({ error: 'Failed to create linked food' });
+  if (!name || !components || components.length === 0) {
+    return res.status(400).json({ error: 'Name and at least one component are required' });
+  }
+
+  // Ensure the linked food belongs to the current user
+  db.get('SELECT id FROM linked_foods WHERE id = ? AND user_id = ?', [id, userId], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
+    if (!row) {
+      return res.status(404).json({ error: 'Linked food not found' });
+    }
+
+    db.serialize(() => {
+      // Update basic info
+      db.run('UPDATE linked_foods SET name = ?, description = ? WHERE id = ? AND user_id = ?',
+        [name, description, id, userId], function(updateErr) {
+        if (updateErr) {
+          return res.status(500).json({ error: 'Failed to update linked food' });
+        }
+
+        // Replace components: delete existing, then insert new
+        db.run('DELETE FROM linked_food_components WHERE linked_food_id = ?', [id], function(deleteErr) {
+          if (deleteErr) {
+            return res.status(500).json({ error: 'Failed to update components' });
           }
-          
-          const linkedFoodId = this.lastID;
-          
-          // Insert components
-          const componentPromises = components.map(component => {
+
+          const insertPromises = components.map(component => {
             return new Promise((resolve, reject) => {
-              db.run('INSERT INTO linked_food_components (linked_food_id, food_id, quantity) VALUES (?, ?, ?)'
-                , [linkedFoodId, component.food_id, component.quantity], function(err) {
-                if (err) reject(err);
+              db.run('INSERT INTO linked_food_components (linked_food_id, food_id, quantity) VALUES (?, ?, ?)',
+                [id, component.food_id, component.quantity], function(insErr) {
+                if (insErr) reject(insErr);
                 else resolve();
               });
             });
           });
-          
-          Promise.all(componentPromises)
+
+          Promise.all(insertPromises)
             .then(() => {
-              res.status(201).json({
-                message: 'Linked food created successfully',
-                linked_food: {
-                  id: linkedFoodId,
-                  user_id: req.user.userId,
-                  name,
-                  description,
-                  components
-                }
+              res.json({
+                message: 'Linked food updated successfully',
+                linked_food: { id: parseInt(id, 10), name, description, components }
               });
             })
-            .catch(err => {
-              res.status(500).json({ error: 'Failed to add components' });
+            .catch(() => {
+              res.status(500).json({ error: 'Failed to update components' });
             });
         });
       });
     });
+  });
+});
 
-    // Update an existing linked food
-    app.put('/api/linked-foods/:id', authenticateToken, (req, res) => {
-      const { id } = req.params;
-      const { name, description, components } = req.body;
-
-      if (!name || !components || components.length === 0) {
-        return res.status(400).json({ error: 'Name and at least one component are required' });
-      }
-
-      // Ensure the linked food belongs to the current user
-      db.get('SELECT id FROM linked_foods WHERE id = ? AND user_id = ?', [id, req.user.userId], (err, row) => {
-        if (err) {
-          return res.status(500).json({ error: 'Database error' });
-        }
-        if (!row) {
-          return res.status(404).json({ error: 'Linked food not found' });
-        }
-
-        db.serialize(() => {
-          // Update basic info
-          db.run('UPDATE linked_foods SET name = ?, description = ? WHERE id = ? AND user_id = ?',
-            [name, description, id, req.user.userId], function(updateErr) {
-            if (updateErr) {
-              return res.status(500).json({ error: 'Failed to update linked food' });
-            }
-
-            // Replace components: delete existing, then insert new
-            db.run('DELETE FROM linked_food_components WHERE linked_food_id = ?', [id], function(deleteErr) {
-              if (deleteErr) {
-                return res.status(500).json({ error: 'Failed to update components' });
-              }
-
-              const insertPromises = components.map(component => {
-                return new Promise((resolve, reject) => {
-                  db.run('INSERT INTO linked_food_components (linked_food_id, food_id, quantity) VALUES (?, ?, ?)',
-                    [id, component.food_id, component.quantity], function(insErr) {
-                    if (insErr) reject(insErr);
-                    else resolve();
-                  });
-                });
-              });
-
-              Promise.all(insertPromises)
-                .then(() => {
-                  res.json({
-                    message: 'Linked food updated successfully',
-                    linked_food: { id: parseInt(id, 10), name, description, components }
-                  });
-                })
-                .catch(() => {
-                  res.status(500).json({ error: 'Failed to update components' });
-                });
-            });
-          });
-        });
-      });
-    });
-
-  app.get('/api/linked-foods/:id/nutrition', authenticateToken, (req, res) => {
+app.get('/api/linked-foods/:id/nutrition', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+  db.all(`
+    SELECT f.*, lfc.quantity
+    FROM linked_food_components lfc
+    JOIN foods f ON lfc.food_id = f.id
+    JOIN linked_foods lf ON lfc.linked_food_id = lf.id
+    WHERE lfc.linked_food_id = ? AND lf.user_id = ?
+  `, [req.params.id, userId], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
     
-    db.all(`
-      SELECT f.*, lfc.quantity
-      FROM linked_food_components lfc
-      JOIN foods f ON lfc.food_id = f.id
-      JOIN linked_foods lf ON lfc.linked_food_id = lf.id
-      WHERE lfc.linked_food_id = ? AND lf.user_id = ?
-    `, [req.params.id, req.user.userId], (err, rows) => {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
-      
-      if (rows.length === 0) {
-        return res.status(404).json({ error: 'Linked food not found' });
-      }
-      
-      const nutrition = rows.reduce((acc, row) => {
-        const multiplier = row.quantity;
-        acc.calories += (row.calories_per_serving || 0) * multiplier;
-        acc.protein += (row.protein_per_serving || 0) * multiplier;
-        acc.carbs += (row.carbs_per_serving || 0) * multiplier;
-        acc.fat += (row.fat_per_serving || 0) * multiplier;
-        return acc;
-      }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
-      
-      res.json({
-        linked_food_id: parseInt(req.params.id),
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Linked food not found' });
+    }
+    
+    const nutrition = rows.reduce((acc, row) => {
+      const multiplier = row.quantity;
+      acc.calories += (row.calories_per_serving || 0) * multiplier;
+      acc.protein += (row.protein_per_serving || 0) * multiplier;
+      acc.carbs += (row.carbs_per_serving || 0) * multiplier;
+      acc.fat += (row.fat_per_serving || 0) * multiplier;
+      return acc;
+    }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+    
+    res.json({
+      linked_food_id: parseInt(req.params.id),
+      nutrition: {
+        calories: Math.round(nutrition.calories),
+        protein: Math.round(nutrition.protein * 10) / 10,
+        carbs: Math.round(nutrition.carbs * 10) / 10,
+        fat: Math.round(nutrition.fat * 10) / 10
+      },
+      components: rows.map(row => ({
+        food_id: row.id,
+        name: row.name,
+        quantity: row.quantity,
         nutrition: {
-          calories: Math.round(nutrition.calories),
-          protein: Math.round(nutrition.protein * 10) / 10,
-          carbs: Math.round(nutrition.carbs * 10) / 10,
-          fat: Math.round(nutrition.fat * 10) / 10
-        },
-        components: rows.map(row => ({
-          food_id: row.id,
-          name: row.name,
-          quantity: row.quantity,
-          nutrition: {
-            calories: (row.calories_per_serving || 0) * row.quantity,
-            protein: (row.protein_per_serving || 0) * row.quantity,
-            carbs: (row.carbs_per_serving || 0) * row.quantity,
-            fat: (row.fat_per_serving || 0) * row.quantity
-          }
-        }))
-      });
+          calories: (row.calories_per_serving || 0) * row.quantity,
+          protein: (row.protein_per_serving || 0) * row.quantity,
+          carbs: (row.carbs_per_serving || 0) * row.quantity,
+          fat: (row.fat_per_serving || 0) * row.quantity
+        }
+      }))
     });
   });
+});
 
-  // Delete a linked food
-  app.delete('/api/linked-foods/:id', authenticateToken, (req, res) => {
-    const { id } = req.params;
+// Delete a linked food
+app.delete('/api/linked-foods/:id', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+  const { id } = req.params;
 
-    // Ensure the linked food belongs to the current user
-    db.get('SELECT id FROM linked_foods WHERE id = ? AND user_id = ?', [id, req.user.userId], (err, row) => {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
-      if (!row) {
-        return res.status(404).json({ error: 'Linked food not found' });
-      }
+  // Ensure the linked food belongs to the current user
+  db.get('SELECT id FROM linked_foods WHERE id = ? AND user_id = ?', [id, userId], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
+    if (!row) {
+      return res.status(404).json({ error: 'Linked food not found' });
+    }
 
-      db.serialize(() => {
-        db.run('DELETE FROM linked_food_components WHERE linked_food_id = ?', [id], function(compErr) {
-          if (compErr) {
-            return res.status(500).json({ error: 'Failed to delete components' });
+    db.serialize(() => {
+      db.run('DELETE FROM linked_food_components WHERE linked_food_id = ?', [id], function(compErr) {
+        if (compErr) {
+          return res.status(500).json({ error: 'Failed to delete components' });
+        }
+        db.run('DELETE FROM linked_foods WHERE id = ? AND user_id = ?', [id, userId], function(delErr) {
+          if (delErr) {
+            return res.status(500).json({ error: 'Failed to delete linked food' });
           }
-          db.run('DELETE FROM linked_foods WHERE id = ? AND user_id = ?', [id, req.user.userId], function(delErr) {
-            if (delErr) {
-              return res.status(500).json({ error: 'Failed to delete linked food' });
-            }
-            res.json({ message: 'Linked food deleted successfully' });
-          });
+          res.json({ message: 'Linked food deleted successfully' });
         });
       });
     });
   });
+});
 
-  // AI Service Configuration routes
-  app.get('/api/ai-config', authenticateToken, (req, res) => {
-    db.get('SELECT * FROM ai_config WHERE user_id = ?', [req.user.userId], (err, row) => {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
-      
-      if (!row) {
-        // Return default config
-        return res.json({
-          openai_enabled: false,
-          openai_api_key: '',
-          openai_model: '',
-          ollama_enabled: false,
-          ollama_endpoint: 'http://localhost:11434',
-          ollama_model: '',
-          preferred_service: null
-        });
-      }
-      
-      res.json({
-        openai_enabled: !!row.openai_enabled,
-        openai_api_key: row.openai_api_key || '',
-        openai_model: row.openai_model || '',
-        ollama_enabled: !!row.ollama_enabled,
-        ollama_endpoint: row.ollama_endpoint || 'http://localhost:11434',
-        ollama_model: row.ollama_model || '',
-        preferred_service: row.preferred_service
+// AI Service Configuration routes
+app.get('/api/ai-config', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+  db.get('SELECT * FROM ai_config WHERE user_id = ?', [userId], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
+    
+    if (!row) {
+      // Return default config
+      return res.json({
+        openai_enabled: false,
+        openai_api_key: '',
+        openai_model: '',
+        ollama_enabled: false,
+        ollama_endpoint: 'http://localhost:11434',
+        ollama_model: '',
+        preferred_service: null
       });
+    }
+    
+    res.json({
+      openai_enabled: !!row.openai_enabled,
+      openai_api_key: row.openai_api_key || '',
+      openai_model: row.openai_model || '',
+      ollama_enabled: !!row.ollama_enabled,
+      ollama_endpoint: row.ollama_endpoint || 'http://localhost:11434',
+      ollama_model: row.ollama_model || '',
+      preferred_service: row.preferred_service
     });
   });
+});
 
-  app.post('/api/ai-config', authenticateToken, (req, res) => {
-    const { 
-      openai_enabled, 
-      openai_api_key,
-      openai_model, 
-      ollama_enabled, 
-      ollama_endpoint, 
-      ollama_model, 
-      preferred_service 
-    } = req.body;
+app.post('/api/ai-config', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+  const { 
+    openai_enabled, 
+    openai_api_key,
+    openai_model, 
+    ollama_enabled, 
+    ollama_endpoint, 
+    ollama_model, 
+    preferred_service 
+  } = req.body;
 
-    db.get('SELECT id FROM ai_config WHERE user_id = ?', [req.user.userId], (err, row) => {
-      if (err) {
-        return res.status(500).json({ error: 'Database error' });
-      }
+  db.get('SELECT id FROM ai_config WHERE user_id = ?', [userId], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
 
-      const configData = {
-        openai_enabled: openai_enabled ? 1 : 0,
-        openai_api_key: openai_api_key || '',
-        openai_model: openai_model || '',
-        ollama_enabled: ollama_enabled ? 1 : 0,
-        ollama_endpoint: ollama_endpoint || 'http://localhost:11434',
-        ollama_model: ollama_model || '',
-        preferred_service: preferred_service || null
-      };
+    const configData = {
+      openai_enabled: openai_enabled ? 1 : 0,
+      openai_api_key: openai_api_key || '',
+      openai_model: openai_model || '',
+      ollama_enabled: ollama_enabled ? 1 : 0,
+      ollama_endpoint: ollama_endpoint || 'http://localhost:11434',
+      ollama_model: ollama_model || '',
+      preferred_service: preferred_service || null
+    };
 
-      if (row) {
-        // Update existing config
-        const updateFields = Object.keys(configData).map(key => `${key} = ?`).join(', ');
-        const updateValues = Object.values(configData);
-        updateValues.push(req.user.userId);
+    if (row) {
+      // Update existing config
+      const updateFields = Object.keys(configData).map(key => `${key} = ?`).join(', ');
+      const updateValues = Object.values(configData);
+      updateValues.push(userId);
 
-        db.run(`UPDATE ai_config SET ${updateFields} WHERE user_id = ?`, updateValues, function(err) {
-          if (err) {
-            return res.status(500).json({ error: 'Failed to update AI config' });
-          }
-          
-          res.json({
-            message: 'AI configuration updated successfully',
-            config: configData
-          });
-        });
-      } else {
-        // Insert new config
-        const insertFields = Object.keys(configData).join(', ');
-        const insertPlaceholders = Object.keys(configData).map(() => '?').join(', ');
-        const insertValues = [req.user.userId, ...Object.values(configData)];
-
-        db.run(`INSERT INTO ai_config (user_id, ${insertFields}) VALUES (?, ${insertPlaceholders})`, 
-          insertValues, function(err) {
-          if (err) {
-            return res.status(500).json({ error: 'Failed to save AI config' });
-          }
-          
-          res.status(201).json({
-            message: 'AI configuration saved successfully',
-            config: configData
-          });
-        });
-      }
-    });
-  });
-
-app.get('/api/ai-models', authenticateToken, async (req, res) => {
-    try {
-      // Get user's AI config
-      db.get('SELECT * FROM ai_config WHERE user_id = ?', [req.user.userId], async (err, config) => {
+      db.run(`UPDATE ai_config SET ${updateFields} WHERE user_id = ?`, updateValues, function(err) {
         if (err) {
-          return res.status(500).json({ error: 'Database error' });
+          return res.status(500).json({ error: 'Failed to update AI config' });
+        }
+        
+        res.json({
+          message: 'AI configuration updated successfully',
+          config: configData
+        });
+      });
+    } else {
+      // Insert new config
+      const insertFields = Object.keys(configData).join(', ');
+      const insertPlaceholders = Object.keys(configData).map(() => '?').join(', ');
+      const insertValues = [userId, ...Object.values(configData)];
+
+      db.run(`INSERT INTO ai_config (user_id, ${insertFields}) VALUES (?, ${insertPlaceholders})`, 
+        insertValues, function(err) {
+        if (err) {
+          return res.status(500).json({ error: 'Failed to save AI config' });
+        }
+        
+        res.status(201).json({
+          message: 'AI configuration saved successfully',
+          config: configData
+        });
+      });
+    }
+  });
+});
+
+app.get('/api/ai-models', async (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+
+  // Get user's AI config
+  db.get('SELECT * FROM ai_config WHERE user_id = ?', [userId], async (err, config) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
         }
 
         const models = {
@@ -1594,13 +1636,13 @@ app.get('/api/ai-models', authenticateToken, async (req, res) => {
 
         res.json(models);
       });
-    } catch (error) {
-      res.status(500).json({ error: 'Failed to fetch AI models' });
-    }
+    
   });
 
 // AI Suggestion endpoint (supports meal planning and single-item suggestions)
-app.post('/api/ai/suggest', authenticateToken, (req, res) => {
+app.post('/api/ai/suggest', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { meal_id, target_calories, preferences, date, allow_new_foods, mode, exclude_food_ids } = req.body;
   const suggestionMode = mode || 'meal'; // 'meal' or 'single-item'
 
@@ -1616,7 +1658,7 @@ app.post('/api/ai/suggest', authenticateToken, (req, res) => {
     error: null,
     createdAt: Date.now(),
     mealId: meal_id,
-    userId: req.user.userId
+    userId: userId
   };
   // Set up SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
@@ -1635,15 +1677,15 @@ app.post('/api/ai/suggest', authenticateToken, (req, res) => {
       Promise.all([
         new Promise(resolve => {
           db.get('SELECT * FROM user_macro_goals WHERE user_id = ? AND is_active = 1', 
-            [req.user.userId], (err, row) => resolve(row));
+            [userId], (err, row) => resolve(row));
         }),
         new Promise(resolve => {
           db.get('SELECT * FROM meals WHERE id = ? AND user_id = ?', 
-            [meal_id, req.user.userId], (err, row) => resolve(row));
+            [meal_id, userId], (err, row) => resolve(row));
         }),
         new Promise(resolve => {
           db.all('SELECT * FROM meals WHERE user_id = ? ORDER BY time_start', 
-            [req.user.userId], (err, rows) => resolve(rows || []));
+            [userId], (err, rows) => resolve(rows || []));
         }),
         new Promise(resolve => {
           db.all(`
@@ -1653,7 +1695,7 @@ app.post('/api/ai/suggest', authenticateToken, (req, res) => {
             WHERE (f.user_id = ? OR f.user_id IS NULL)
               AND COALESCE(ufo.active, f.active) = 1
             LIMIT 200
-          `, [req.user.userId, req.user.userId], (err, rows) => resolve(rows || []));
+          `, [userId, userId], (err, rows) => resolve(rows || []));
         }),
         new Promise(resolve => {
           db.all(`SELECT lf.id, lf.name, 
@@ -1668,7 +1710,7 @@ app.post('/api/ai/suggest', authenticateToken, (req, res) => {
             WHERE lf.user_id = ?
             GROUP BY lf.id
             LIMIT 100`,
-            [req.user.userId], (err, rows) => resolve(rows || []));
+            [userId], (err, rows) => resolve(rows || []));
         }),
         new Promise(resolve => {
           const useDate = date || new Date().toISOString().split('T')[0];
@@ -1679,7 +1721,7 @@ app.post('/api/ai/suggest', authenticateToken, (req, res) => {
             JOIN meals m ON mp.meal_id = m.id
             LEFT JOIN foods f ON mp.food_id = f.id
             WHERE mp.user_id = ? AND mp.date = ?
-          `, [req.user.userId, useDate], (err, rows) => resolve(rows || []));
+          `, [userId, useDate], (err, rows) => resolve(rows || []));
         }),
         new Promise(resolve => {
           const useDate = date || new Date().toISOString().split('T')[0];
@@ -1688,7 +1730,7 @@ app.post('/api/ai/suggest', authenticateToken, (req, res) => {
             FROM meal_plans mp
             LEFT JOIN foods f ON mp.food_id = f.id
             WHERE mp.user_id = ? AND mp.date = ? AND mp.food_id IS NOT NULL
-          `, [req.user.userId, useDate], (err, rows) => resolve(rows || []));
+          `, [userId, useDate], (err, rows) => resolve(rows || []));
         })
       ]).then(([goals, meal, allMeals, foods, linkedFoods, dayPlans, foodsEatenToday]) => {
         resolve({ goals, meal, allMeals, foods, linkedFoods, dayPlans, foodsEatenToday });
@@ -1773,7 +1815,7 @@ app.post('/api/ai/suggest', authenticateToken, (req, res) => {
       sendEvent({ status: 'Contacting AI service...' });
 
       // Get AI config
-      db.get('SELECT * FROM ai_config WHERE user_id = ?', [req.user.userId], async (err, config) => {
+      db.get('SELECT * FROM ai_config WHERE user_id = ?', [userId], async (err, config) => {
         if (err || !config || (!config.openai_enabled && !config.ollama_enabled)) {
           sendEvent({ error: 'AI service not configured. Please configure OpenAI or Ollama in AI Configuration.' });
           res.end();
@@ -2407,7 +2449,9 @@ JSON ONLY:`;
 });  
   
 // Cancel an AI suggestion request
-app.post('/api/ai/cancel/:requestId', authenticateToken, (req, res) => {
+app.post('/api/ai/cancel/:requestId', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { requestId } = req.params;
   
   if (!aiRequests[requestId]) {
@@ -2415,7 +2459,7 @@ app.post('/api/ai/cancel/:requestId', authenticateToken, (req, res) => {
   }
   
   // Verify the request belongs to the current user
-  if (aiRequests[requestId].userId !== req.user.userId) {
+  if (aiRequests[requestId].userId !== userId) {
     return res.status(403).json({ error: 'Unauthorized' });
   }
   
@@ -2427,7 +2471,9 @@ app.post('/api/ai/cancel/:requestId', authenticateToken, (req, res) => {
 });
 
 // Get status of an AI suggestion request (for page refresh recovery)
-app.get('/api/ai/status/:requestId', authenticateToken, (req, res) => {
+app.get('/api/ai/status/:requestId', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
   const { requestId } = req.params;
   
   if (!aiRequests[requestId]) {
@@ -2435,7 +2481,7 @@ app.get('/api/ai/status/:requestId', authenticateToken, (req, res) => {
   }
   
   // Verify the request belongs to the current user
-  if (aiRequests[requestId].userId !== req.user.userId) {
+  if (aiRequests[requestId].userId !== userId) {
     return res.status(403).json({ error: 'Unauthorized' });
   }
   

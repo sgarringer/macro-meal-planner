@@ -1,155 +1,66 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import { authAPI } from '../services/api';
+import axios from 'axios'; // Or use your authAPI if updated
+import api from '../services/api'; // Import YOUR configured axios instance
 
-// Initial state
 const initialState = {
   user: null,
-  token: localStorage.getItem('authToken'),
   isAuthenticated: false,
   isLoading: true,
   error: null,
 };
 
-// Reducer
 const authReducer = (state, action) => {
   switch (action.type) {
-    case 'LOGIN_SUCCESS':
     case 'LOAD_USER_SUCCESS':
-      return {
-        ...state,
-        user: action.payload.user,
-        token: action.payload.token,
-        isAuthenticated: true,
-        isLoading: false,
-        error: null,
-      };
-
-    case 'LOGIN_FAILURE':
+      return { ...state, user: action.payload, isAuthenticated: true, isLoading: false, error: null };
     case 'LOAD_USER_FAILURE':
     case 'LOGOUT':
-      return {
-        ...state,
-        user: null,
-        token: null,
-        isAuthenticated: false,
-        isLoading: false,
-        error: action.payload || null,
-      };
-
+      return { ...state, user: null, isAuthenticated: false, isLoading: false, error: action.payload || null };
     default:
       return state;
   }
 };
 
-// Create context
 const AuthContext = createContext();
 
-// Provider component
 export const AuthProvider = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
-  // Load user on mount
+  // Check session on mount
   useEffect(() => {
     const loadUser = async () => {
-      const token = localStorage.getItem('authToken');
-      
-      if (!token) {
-        dispatch({ type: 'LOAD_USER_FAILURE', payload: 'No token found' });
-        return;
-      }
-
       try {
-        const response = await authAPI.getMe();
-        dispatch({
-          type: 'LOAD_USER_SUCCESS',
-          payload: { user: response.user, token },
-        });
+        console.log("Frontend: Attempting to load user...");
+        const response = await api.get('/auth/me'); // Uses baseURL and withCredentials
+        console.log("Frontend: User loaded!", response.user);
+        dispatch({ type: 'LOAD_USER_SUCCESS', payload: response.user });
       } catch (error) {
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('user');
-        dispatch({
-          type: 'LOAD_USER_FAILURE',
-          payload: error.error || 'Failed to load user',
-        });
+        console.error("Frontend: Load user failed", error);
+        dispatch({ type: 'LOAD_USER_FAILURE' });
       }
     };
-
     loadUser();
   }, []);
 
-  // Login function
-  const login = async (credentials) => {
-    try {
-      const response = await authAPI.login(credentials);
-      
-      localStorage.setItem('authToken', response.token);
-      localStorage.setItem('user', JSON.stringify(response.user));
-      
-      dispatch({
-        type: 'LOGIN_SUCCESS',
-        payload: response,
-      });
-      
-      return response;
-    } catch (error) {
-      dispatch({
-        type: 'LOGIN_FAILURE',
-        payload: error.error || 'Login failed',
-      });
-      throw error;
-    }
+  // Login now just triggers a redirect to the backend
+  const login = () => {
+    window.location.href = 'http://localhost:3001/login?returnTo=http://localhost:5173/dashboard';
   };
 
-  // Register function
-  const register = async (userData) => {
-    try {
-      const response = await authAPI.register(userData);
-      
-      localStorage.setItem('authToken', response.token);
-      localStorage.setItem('user', JSON.stringify(response.user));
-      
-      dispatch({
-        type: 'LOGIN_SUCCESS',
-        payload: response,
-      });
-      
-      return response;
-    } catch (error) {
-      dispatch({
-        type: 'LOGIN_FAILURE',
-        payload: error.error || 'Registration failed',
-      });
-      throw error;
-    }
-  };
-
-  // Logout function
+  // Logout triggers the backend logout flow
   const logout = () => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('user');
+    window.location.href = 'http://localhost:3001/logout?returnTo=http://localhost:5173';
     dispatch({ type: 'LOGOUT' });
   };
 
-  const value = {
-    ...state,
-    login,
-    register,
-    logout,
-  };
+  const value = { ...state, login, logout };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-// Hook to use auth context
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
 
