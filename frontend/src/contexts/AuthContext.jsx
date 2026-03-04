@@ -41,12 +41,13 @@ export const AuthProvider = ({ children }) => {
 
   // Login now just triggers a redirect to the backend
   const login = () => {
-    window.location.href = 'http://localhost:3001/login?returnTo=http://localhost:5173/dashboard';
+    process.env.BACKEND_URL
+    window.location.href = `${process.env.BACKEND_URL}/login?returnTo=${process.env.FRONTEND_URL}/dashboard`;
   };
 
   // Logout triggers the backend logout flow
   const logout = () => {
-    window.location.href = 'http://localhost:3001/logout?returnTo=http://localhost:5173';
+    window.location.href = `${process.env.BACKEND_URL}/logout?returnTo=${process.env.FRONTEND_URL}/`;
     dispatch({ type: 'LOGOUT' });
   };
 
