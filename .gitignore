@@ -66,6 +66,7 @@ uploads/
 
 # Database
 backend/macro_meal_planner.db
+backend/macro_meal_planner.db.*
 
 # Misc private keys
 *.pem

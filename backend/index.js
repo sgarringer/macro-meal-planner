@@ -18,11 +18,11 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const config = {
   authRequired: false, // Set to true to protect ALL routes
   auth0Logout: true,
-  secret: process.env.SECRET,
-  baseURL: process.env.BASE_URL,
-  clientID: process.env.CLIENT_ID,
-  clientSecret: process.env.CLIENT_SECRET,
-  issuerBaseURL: process.env.ISSUER_BASE_URL,
+  secret: process.env.AUTH0_SECRET,
+  baseURL: process.env.BACKEND_URL,
+  clientID: process.env.AUTH0_CLIENT_ID,
+  clientSecret: process.env.AUTH0_CLIENT_SECRET,
+  issuerBaseURL: process.env.AUTH0_ISSUER_BASE_URL,
   authorizationParams: {
     response_type: 'code',
     scope: 'openid profile email', // Explicitly ask for email
@@ -75,12 +75,10 @@ afterCallback: async (req, res, session, decodedToken) => {
 app.use(auth(config));
 
 app.get('/', (req, res) => {
-  res.redirect('http://localhost:5173/dashboard'); 
+  res.redirect(`${process.env.FRONTEND_URL}/dashboard`);
 });
 
 app.use((req, res, next) => {
-  console.log('Session Cookie Present:', !!req.cookies?.appSession);
-  console.log('Is Authenticated:', req.oidc?.isAuthenticated());
   next();
 });
 
@@ -119,24 +117,16 @@ setInterval(() => {
 // Database setup
 // Initialize database tables
 db.serialize(() => {
+  // 1. Users (Auth0 ready)
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
+    password_hash TEXT, 
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 
-  // Insert admin user if not exists
-  db.get('SELECT * FROM users WHERE username = ?', ['admin'], async (err, row) => {
-    if (!row) {
-      const hashedPassword = await bcrypt.hash('admin123', 12);
-      db.run('INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)', 
-        ['admin', 'admin@example.com', hashedPassword]);
-    }
-  });
-
-  // Create user macro goals table
+  // 2. Macro Goals (includes fiber and net carbs)
   db.run(`CREATE TABLE IF NOT EXISTS user_macro_goals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -144,12 +134,14 @@ db.serialize(() => {
     protein REAL NOT NULL,
     carbs REAL NOT NULL,
     fat REAL NOT NULL,
+    fiber REAL DEFAULT 0,
+    track_net_carbs INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users (id)
   )`);
 
-  // Create meals table
+  // 3. Meals
   db.run(`CREATE TABLE IF NOT EXISTS meals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -165,7 +157,7 @@ db.serialize(() => {
     FOREIGN KEY (user_id) REFERENCES users (id)
   )`);
 
-  // Create foods table
+  // 4. Foods (includes active and fiber)
   db.run(`CREATE TABLE IF NOT EXISTS foods (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
@@ -176,11 +168,14 @@ db.serialize(() => {
     protein_per_serving REAL NOT NULL,
     carbs_per_serving REAL NOT NULL,
     fat_per_serving REAL NOT NULL,
+    fiber_per_serving REAL DEFAULT 0,
+    active BOOLEAN DEFAULT 1,
     is_common BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users (id)
   )`);
 
+  // 5. User Food Overrides
   db.run(`CREATE TABLE IF NOT EXISTS user_food_overrides (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -192,7 +187,7 @@ db.serialize(() => {
     UNIQUE(user_id, food_id)
   )`);
 
-  // Create meal plans table
+  // 6. Meal Plans
   db.run(`CREATE TABLE IF NOT EXISTS meal_plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -206,7 +201,7 @@ db.serialize(() => {
     FOREIGN KEY (food_id) REFERENCES foods (id)
   )`);
 
-  // Create linked foods table
+  // 7. Linked Foods
   db.run(`CREATE TABLE IF NOT EXISTS linked_foods (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -216,7 +211,7 @@ db.serialize(() => {
     FOREIGN KEY (user_id) REFERENCES users (id)
   )`);
 
-  // Create linked food components table
+  // 8. Linked Food Components
   db.run(`CREATE TABLE IF NOT EXISTS linked_food_components (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     linked_food_id INTEGER NOT NULL,
@@ -226,12 +221,13 @@ db.serialize(() => {
     FOREIGN KEY (food_id) REFERENCES foods (id)
   )`);
 
-  // Create AI configuration table
+  // 9. AI Config (includes openai_model)
   db.run(`CREATE TABLE IF NOT EXISTS ai_config (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     openai_enabled BOOLEAN DEFAULT 0,
     openai_api_key TEXT,
+    openai_model TEXT,
     ollama_enabled BOOLEAN DEFAULT 0,
     ollama_endpoint TEXT DEFAULT 'http://localhost:11434',
     ollama_model TEXT,
@@ -241,7 +237,7 @@ db.serialize(() => {
     FOREIGN KEY (user_id) REFERENCES users (id)
   )`);
 
-  // Create meal calorie allocations table
+  // 10. Calorie Allocations (includes auto-calc and custom)
   db.run(`CREATE TABLE IF NOT EXISTS meal_calorie_allocations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -256,48 +252,24 @@ db.serialize(() => {
     UNIQUE(user_id)
   )`);
 
-  // Add columns to existing tables (safe no-op when already present)
-  db.run(`ALTER TABLE foods ADD COLUMN active BOOLEAN DEFAULT 1`, (err) => {
-    if (err && !err.message.includes('duplicate column name')) {
-      console.error('Error adding active column to foods:', err);
-    }
-  });
+  // --- MIGRATIONS FOR EXISTING DATABASES ---
+  // These only run if the column is missing.
+  const addColumn = (table, column, type) => {
+    db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`, (err) => {
+      if (err && !err.message.includes('duplicate column name')) {
+        console.error(`Error migrating ${table}:`, err);
+      }
+    });
+  };
 
-  db.run(`ALTER TABLE foods ADD COLUMN fiber_per_serving REAL DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column name')) {
-      console.error('Error adding fiber column to foods:', err);
-    }
-  });
+  addColumn('foods', 'active', 'BOOLEAN DEFAULT 1');
+  addColumn('foods', 'fiber_per_serving', 'REAL DEFAULT 0');
+  addColumn('user_macro_goals', 'fiber', 'REAL DEFAULT 0');
+  addColumn('user_macro_goals', 'track_net_carbs', 'INTEGER DEFAULT 0');
+  addColumn('ai_config', 'openai_model', 'TEXT');
+  addColumn('meal_calorie_allocations', 'use_auto_calculation', 'BOOLEAN DEFAULT 1');
+  addColumn('meal_calorie_allocations', 'custom_allocations', 'TEXT');
 
-  db.run(`ALTER TABLE user_macro_goals ADD COLUMN fiber REAL DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column name')) {
-      console.error('Error adding fiber column to user_macro_goals:', err);
-    }
-  });
-
-  db.run(`ALTER TABLE user_macro_goals ADD COLUMN track_net_carbs INTEGER DEFAULT 0`, (err) => {
-    if (err && !err.message.includes('duplicate column name')) {
-      console.error('Error adding track_net_carbs column to user_macro_goals:', err);
-    }
-  });
-
-  db.run(`ALTER TABLE ai_config ADD COLUMN openai_model TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column name')) {
-      console.error('Error adding openai_model column to ai_config:', err);
-    }
-  });
-
-  db.run(`ALTER TABLE meal_calorie_allocations ADD COLUMN use_auto_calculation BOOLEAN DEFAULT 1`, (err) => {
-    if (err && !err.message.includes('duplicate column name')) {
-      console.error('Error adding use_auto_calculation column to meal_calorie_allocations:', err);
-    }
-  });
-
-  db.run(`ALTER TABLE meal_calorie_allocations ADD COLUMN custom_allocations TEXT`, (err) => {
-    if (err && !err.message.includes('duplicate column name')) {
-      console.error('Error adding custom_allocations column to meal_calorie_allocations:', err);
-    }
-  });
 
   // Seed defaults on first run (idempotent via row counts)
   const runSeedIfEmpty = (table, whereClause, seedScript) => {
@@ -326,10 +298,7 @@ db.serialize(() => {
 
 // Middleware
 // CORS
-const defaultAllowedOrigins = [
-  'http://localhost:5173',
-  'http://127.0.0.1:5173'
-];
+const defaultAllowedOrigins = [];
 const envAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
   .split(',')
   .map(o => o.trim())
