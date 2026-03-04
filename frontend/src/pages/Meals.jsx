@@ -12,16 +12,32 @@ const Meals = () => {
   const [showForm, setShowForm] = useState(false);
   const [message, setMessage] = useState('');
 
+  // 1. We keep a "default" based on user goals
+  const [defaultMacros, setDefaultMacros] = useState({
+    protein_percentage: 0,
+    carbs_percentage: 0,
+    fat_percentage: 0
+  });
+
   const [formData, setFormData] = useState({
     name: '',
     type: 'breakfast',
     time_start: '07:00',
     time_end: '09:00',
-    protein_percentage: 25,
-    carbs_percentage: 50,
-    fat_percentage: 25,
+    protein_percentage: 0,
+    carbs_percentage: 0,
+    fat_percentage: 0,
     preferences: ''
   });
+
+  useEffect(() => {
+    if (defaultMacros && !editingMeal && !showForm) {
+      setFormData(prev => ({
+        ...prev,
+        ...defaultMacros
+      }));
+    }
+  }, [defaultMacros, editingMeal, showForm]);
 
   const mealTypes = [
     { value: 'breakfast', label: 'Breakfast' },
@@ -37,10 +53,34 @@ const Meals = () => {
 
   const fetchMacroGoals = async () => {
     try {
-      const response = await api.get('/macro-goals');
-      setMacroGoals(response);
+      const profile = await api.get('/profile');
+      setMacroGoals(profile);
+      if (profile && profile.calories) {
+        // Calculate percentages based on grams (4 cal/g for P/C, 9 cal/g for F)
+        const pCal = profile.protein * 4;
+        const cCal = profile.carbs * 4;
+        const fCal = profile.fat * 9;
+        const total = pCal + cCal + fCal;
+
+        const ratios = {
+          protein_percentage: Math.round((pCal / total) * 100),
+          carbs_percentage: Math.round((cCal / total) * 100),
+          fat_percentage: Math.round((fCal / total) * 100)
+        };
+
+        // Fix rounding drift (ensure it adds to exactly 100)
+        const sum = ratios.protein_percentage + ratios.carbs_percentage + ratios.fat_percentage;
+        if (sum !== 100) ratios.fat_percentage += (100 - sum);
+
+        setDefaultMacros(ratios);
+        
+        // Apply to current form if not editing
+        if (!editingMeal) {
+          setFormData(prev => ({ ...prev, ...ratios }));
+        }
+      }
     } catch (error) {
-      console.error('Error fetching macro goals:', error);
+      console.error('Error fetching profile for defaults:', error);
     }
   };
 
@@ -103,9 +143,9 @@ const Meals = () => {
       type: meal.type,
       time_start: meal.time_start,
       time_end: meal.time_end,
-      protein_percentage: meal.protein_percentage || 25,
-      carbs_percentage: meal.carbs_percentage || 50,
-      fat_percentage: meal.fat_percentage || 25,
+      protein_percentage: meal.protein_percentage || 0,
+      carbs_percentage: meal.carbs_percentage || 0,
+      fat_percentage: meal.fat_percentage || 0,
       preferences: meal.preferences || ''
     });
     setShowForm(true);
@@ -131,9 +171,7 @@ const Meals = () => {
       type: 'breakfast',
       time_start: '07:00',
       time_end: '09:00',
-      protein_percentage: 25,
-      carbs_percentage: 50,
-      fat_percentage: 25,
+      ...defaultMacros,
       preferences: ''
     });
     setEditingMeal(null);

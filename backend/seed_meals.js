@@ -59,28 +59,3 @@ const sampleMeals = [
     preferences: 'Protein-rich to prevent evening cravings'
   }
 ];
-
-db.serialize(() => {
-  console.log('Seeding sample meals...');
-  
-  sampleMeals.forEach((meal, index) => {
-    db.run(
-      `INSERT INTO meals (user_id, name, type, time_start, time_end, protein_percentage, carbs_percentage, fat_percentage, preferences) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [meal.user_id, meal.name, meal.type, meal.time_start, meal.time_end, 
-       meal.protein_percentage, meal.carbs_percentage, meal.fat_percentage, meal.preferences],
-      function(err) {
-        if (err) {
-          console.error(`Error inserting ${meal.name}:`, err);
-        } else {
-          console.log(`✓ Added ${meal.name} (ID: ${this.lastID})`);
-        }
-        
-        if (index === sampleMeals.length - 1) {
-          console.log('Finished seeding sample meals!');
-          db.close();
-        }
-      }
-    );
-  });
-});

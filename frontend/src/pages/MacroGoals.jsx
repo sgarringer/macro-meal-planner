@@ -35,16 +35,19 @@ const MacroGoals = () => {
   const fetchCurrentGoals = async () => {
     try {
       const response = await api.get('/macro-goals');
+      
+      // If response is valid and has an ID, populate with saved data
       if (response && response.id) {
         setCurrentGoals(response);
-        setGoals({
+        const savedGoals = {
           calories: response.calories || '',
           protein: response.protein || '',
           carbs: response.carbs || '',
           fat: response.fat || '',
           fiber: response.fiber || '',
           track_net_carbs: response.track_net_carbs || false
-        });
+        };
+        setGoals(savedGoals);
         
         // Check if current goals match any preset
         const matchingPreset = presets.find(preset => 
@@ -56,11 +59,26 @@ const MacroGoals = () => {
           preset.track_net_carbs === Boolean(response.track_net_carbs)
         );
         
-        // Set selectedPreset based on whether we found a match
         setSelectedPreset(matchingPreset ? matchingPreset.name : 'custom');
+      } 
+      // NEW USER LOGIC: If response is {} or null, default to Balanced
+      else {
+        const balancedPreset = presets.find(p => p.name === 'Balanced');
+        if (balancedPreset) {
+          setSelectedPreset('Balanced');
+          setGoals({
+            calories: balancedPreset.calories,
+            protein: balancedPreset.protein,
+            carbs: balancedPreset.carbs,
+            fat: balancedPreset.fat,
+            fiber: balancedPreset.fiber,
+            track_net_carbs: balancedPreset.track_net_carbs
+          });
+        }
       }
     } catch (error) {
       console.error('Error fetching macro goals:', error);
+      // Optional: also default to Balanced here if the API fails for a new user
     } finally {
       setLoading(false);
     }

@@ -30,12 +30,9 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const loadUser = async () => {
       try {
-        console.log("Frontend: Attempting to load user...");
         const response = await api.get('/auth/me'); // Uses baseURL and withCredentials
-        console.log("Frontend: User loaded!", response.user);
         dispatch({ type: 'LOAD_USER_SUCCESS', payload: response.user });
       } catch (error) {
-        console.error("Frontend: Load user failed", error);
         dispatch({ type: 'LOAD_USER_FAILURE' });
       }
     };

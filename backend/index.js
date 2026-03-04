@@ -14,6 +14,46 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET;
 
+// Helper for initializing default meals based on user goals
+const initializeDefaultMeals = (db, userId, goals) => {
+  // 1. Check if the user already has any meals
+  db.get('SELECT COUNT(*) as count FROM meals WHERE user_id = ?', [userId], (err, row) => {
+    if (err || (row && row.count > 0)) {
+      // If error or meals exist, we do nothing and respect user's data
+      return;
+    }
+
+    // 2. Calculate the precise macro ratios from the user's specific goal
+    const pCal = (goals.protein || 0) * 4;
+    const cCal = (goals.carbs || 0) * 4;
+    const fCal = (goals.fat || 0) * 9;
+    const total = pCal + cCal + fCal;
+
+    // Default to a 30/40/30 split if total is 0 for some reason
+    const pPct = total > 0 ? Math.round((pCal / total) * 100) : 30;
+    const cPct = total > 0 ? Math.round((cCal / total) * 100) : 40;
+    const fPct = 100 - (pPct + cPct);
+
+    const templates = [
+      { name: 'Breakfast', type: 'breakfast', start: '07:00', end: '09:00' },
+      { name: 'Lunch', type: 'lunch', start: '12:00', end: '13:30' },
+      { name: 'Dinner', type: 'dinner', start: '18:00', end: '20:00' },
+      { name: 'Snack', type: 'snack', start: '15:30', end: '16:00' }
+    ];
+
+    // 3. Batch insert the personalized starter meals
+    const stmt = db.prepare(`
+      INSERT INTO meals (user_id, name, type, time_start, time_end, protein_percentage, carbs_percentage, fat_percentage, preferences) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    templates.forEach(t => {
+      stmt.run([userId, t.name, t.type, t.start, t.end, pPct, cPct, fPct, 'Auto-generated based on macro goals']);
+    });
+
+    stmt.finalize();
+  });
+};
 // Set up Auth0 Authentication
 const config = {
   authRequired: false, // Set to true to protect ALL routes
@@ -27,43 +67,43 @@ const config = {
     response_type: 'code',
     scope: 'openid profile email', // Explicitly ask for email
   },
-afterCallback: async (req, res, session, decodedToken) => {
-  return new Promise((resolve, reject) => {
-    // sub is the unique ID from Auth0, always present
-    const { sub, email, nickname, name } = decodedToken;
+  afterCallback: async (req, res, session, decodedToken) => {
+    return new Promise((resolve, reject) => {
+      // sub is the unique ID from Auth0, always present
+      const { sub, email, nickname, name } = decodedToken;
 
-    // SAFEGUARDS: Use sub as fallback if email/name are missing
-    const userEmail = email || `${sub}@auth0.local`;
-    
-    // Create a username safely
-    let userName = nickname || name;
-    if (!userName) {
-      userName = userEmail.includes('@') ? userEmail.split('@')[0] : sub;
-    }
-
-    // Check if user exists in your SQLite DB
-    db.get('SELECT id FROM users WHERE email = ?', [userEmail], (err, row) => {
-      if (err) return reject(err);
-
-      if (row) {
-        // Found existing user, link them
-        session.local_user_id = row.id;
-        resolve(session);
-      } else {
-        // New user: Insert into DB
-        db.run(
-          'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
-          [userName, userEmail, 'SSO_USER'],
-          function (err) {
-            if (err) return reject(err);
-            session.local_user_id = this.lastID;
-            resolve(session);
-          }
-        );
+      // SAFEGUARDS: Use sub as fallback if email/name are missing
+      const userEmail = email || `${sub}@auth0.local`;
+      
+      // Create a username safely
+      let userName = nickname || name;
+      if (!userName) {
+        userName = userEmail.includes('@') ? userEmail.split('@')[0] : sub;
       }
+
+      // Check if user exists in your SQLite DB
+      db.get('SELECT id FROM users WHERE email = ?', [userEmail], (err, row) => {
+        if (err) return reject(err);
+
+        if (row) {
+          // Found existing user, link them
+          session.local_user_id = row.id;
+          resolve(session);
+        } else {
+          // New user: Insert into DB
+          db.run(
+            'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
+            [userName, userEmail, 'SSO_USER'],
+            function (err) {
+              if (err) return reject(err);
+              session.local_user_id = this.lastID;
+              resolve(session);
+            }
+          );
+        }
+      });
     });
-  });
-},
+  },
   session: {
     cookie: {
       sameSite: 'Lax', // Allow the cookie to be sent after the redirect
@@ -351,7 +391,54 @@ app.get('/api/auth/me', (req, res) => {
 });
 
 // Profile routes
+app.get('/api/profile', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
 
+  const query = `
+    SELECT 
+        umg.*, 
+        mca.*, 
+        mp.*, 
+        m.name as meal_name, 
+        m.type as meal_type, 
+        f.name as food_name, f.serving_size, 
+        f.calories_per_serving, f.protein_per_serving, f.carbs_per_serving, 
+        f.fat_per_serving, f.fiber_per_serving
+    FROM user_macro_goals umg
+    LEFT JOIN meal_calorie_allocations mca ON umg.user_id = mca.user_id
+    LEFT JOIN meal_plans mp ON umg.user_id = mp.user_id
+    LEFT JOIN meals m ON mp.meal_id = m.id
+    LEFT JOIN foods f ON mp.food_id = f.id
+    WHERE umg.user_id = ? AND umg.is_active = 1
+  `;
+
+  db.all(query, [userId], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+
+    if (!rows || rows.length === 0) {
+      return res.json({});
+    }
+
+    // Since goals/allocations repeat on every row, we take them from the first row
+    const profile = {
+      ...rows[0],
+      // We overwrite the meal/food specific fields with a clean array of all items
+      meal_plan: rows[0].mp_id ? rows.map(row => ({
+        meal_name: row.meal_name,
+        meal_type: row.meal_type,
+        food_name: row.food_name,
+        calories: row.calories_per_serving,
+        quantity: row.quantity
+        // Add any other f.* fields you need here
+      })) : []
+    };
+
+    res.json(profile);
+  });
+});
 
 // Common foods
 app.get('/api/foods/common', (req, res) => {
@@ -374,6 +461,51 @@ app.get('/api/macro-goals', (req, res) => {
       return res.status(500).json({ error: 'Database error' });
     }
     res.json(row || {});
+  });
+});
+
+app.post('/api/macro-goals', (req, res) => {
+  if (!req.oidc.isAuthenticated()) return res.status(401).send();
+  const userId = req.appSession.local_user_id;
+  const { calories, protein, carbs, fat, fiber } = req.body;
+  const track_net_carbs = req.body.track_net_carbs || 0;
+  
+  if (!calories || !protein || !carbs || !fat) {
+    return res.status(400).json({ error: 'All macro values are required' });
+  }
+
+  // Deactivate existing goals
+  db.run('UPDATE user_macro_goals SET is_active = 0 WHERE user_id = ?', [userId], (err) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    // Insert new goals
+    db.run('INSERT INTO user_macro_goals (user_id, calories, protein, carbs, fat, fiber, track_net_carbs) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [userId, calories, protein, carbs, fat, fiber || 0, track_net_carbs], function(err) {
+      if (err) {
+        return res.status(500).json({ error: 'Failed to save macro goals' });
+      }
+
+      // --- TRIGGER SMART SEEDING ---
+      // We pass the macro values directly so the generator knows the new ratios immediately
+      initializeDefaultMeals(db, userId, { protein, carbs, fat, calories });
+      
+      res.status(201).json({
+        message: 'Macro goals saved successfully',
+        goals: {
+          id: this.lastID,
+          user_id: userId,
+          calories,
+          protein,
+          carbs,
+          fat,
+          fiber: fiber || 0,
+          track_net_carbs,
+          is_active: 1
+        }
+      });
+    });
   });
 });
 
