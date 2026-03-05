@@ -17,6 +17,7 @@ const Foods = () => {
     name: '',
     brand: '',
     serving_size: '',
+    serving_weight_grams: '',
     calories_per_serving: '',
     protein_per_serving: '',
     carbs_per_serving: '',
@@ -65,6 +66,20 @@ const Foods = () => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    
+    // Auto-extract weight from serving_size if it contains a number and 'g'
+    if (name === 'serving_size') {
+      const match = value.match(/(\d+\.?\d*)\s*g/i);
+      if (match) {
+        setFormData(prev => ({
+          ...prev,
+          [name]: value,
+          serving_weight_grams: match[1]
+        }));
+        return;
+      }
+    }
+    
     setFormData(prev => ({
       ...prev,
       [name]: value
@@ -83,7 +98,8 @@ const Foods = () => {
         protein_per_serving: parseFloat(formData.protein_per_serving),
         carbs_per_serving: parseFloat(formData.carbs_per_serving),
         fat_per_serving: parseFloat(formData.fat_per_serving),
-        fiber_per_serving: parseFloat(formData.fiber_per_serving)
+        fiber_per_serving: parseFloat(formData.fiber_per_serving),
+        serving_weight_grams: parseFloat(formData.serving_weight_grams)
       };
 
       if (editingFood) {
@@ -106,6 +122,7 @@ const Foods = () => {
       name: '',
       brand: '',
       serving_size: '',
+      serving_weight_grams: '',
       calories_per_serving: '',
       protein_per_serving: '',
       carbs_per_serving: '',
@@ -124,6 +141,7 @@ const Foods = () => {
       name: food.name,
       brand: food.brand || '',
       serving_size: food.serving_size,
+      serving_weight_grams: (food.serving_weight_grams || '').toString(),
       calories_per_serving: food.calories_per_serving.toString(),
       protein_per_serving: food.protein_per_serving.toString(),
       carbs_per_serving: food.carbs_per_serving.toString(),
@@ -163,6 +181,7 @@ const Foods = () => {
         setFormData((prev) => ({
           ...prev,
           serving_size: fields.serving_size || prev.serving_size,
+          serving_weight_grams: fields.serving_weight_grams?.toString() || prev.serving_weight_grams,
           calories_per_serving: fields.calories_per_serving?.toString() || prev.calories_per_serving,
           protein_per_serving: fields.protein_per_serving?.toString() || prev.protein_per_serving,
           carbs_per_serving: fields.carbs_per_serving?.toString() || prev.carbs_per_serving,
@@ -359,21 +378,40 @@ const Foods = () => {
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Serving Size *
-                  </label>
-                  <input
-                    type="text"
-                    name="serving_size"
-                    value={formData.serving_size}
-                    onChange={handleInputChange}
-                    placeholder="e.g., 1 cup, 100g, 2 slices"
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
-                             bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                             focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Serving Size *
+                    </label>
+                    <input
+                      type="text"
+                      name="serving_size"
+                      value={formData.serving_size}
+                      onChange={handleInputChange}
+                      placeholder="e.g., 1 cup, 100g, 2 slices"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+                               focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Weight (grams) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      name="serving_weight_grams"
+                      value={formData.serving_weight_grams}
+                      onChange={handleInputChange}
+                      placeholder="e.g., 100, 28.4"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+                               focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -385,40 +423,6 @@ const Foods = () => {
                       type="number"
                       name="calories_per_serving"
                       value={formData.calories_per_serving}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
-                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                               focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Protein (g) *
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      name="protein_per_serving"
-                      value={formData.protein_per_serving}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
-                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white
-                               focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Carbs (g) *
-                    </label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      name="carbs_per_serving"
-                      value={formData.carbs_per_serving}
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
                                bg-white dark:bg-gray-700 text-gray-900 dark:text-white
@@ -446,6 +450,23 @@ const Foods = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Carbs (g) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      name="carbs_per_serving"
+                      value={formData.carbs_per_serving}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+                               focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Fiber (g) *
                     </label>
                     <input
@@ -453,6 +474,23 @@ const Foods = () => {
                       step="0.1"
                       name="fiber_per_serving"
                       value={formData.fiber_per_serving}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white
+                               focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Protein (g) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      name="protein_per_serving"
+                      value={formData.protein_per_serving}
                       onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
                                bg-white dark:bg-gray-700 text-gray-900 dark:text-white
@@ -507,34 +545,37 @@ const Foods = () => {
               <table className="w-full table-fixed">
               <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th className="w-[20%] px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[18%] px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Food
                   </th>
-                  <th className="w-[12%] px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[10%] px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Serving
                   </th>
                   <th className="w-[8%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Weight (g)
+                  </th>
+                  <th className="w-[7%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Cal
                   </th>
-                  <th className="w-[8%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Prot
-                  </th>
-                  <th className="w-[8%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Carbs
-                  </th>
-                  <th className="w-[8%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[7%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Fat
                   </th>
-                  <th className="w-[8%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[7%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Carbs
+                  </th>
+                  <th className="w-[7%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Fiber
                   </th>
-                  <th className="w-[10%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[7%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Prot
+                  </th>
+                  <th className="w-[9%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Type
                   </th>
-                  <th className="w-[10%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[9%] px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="w-[8%] px-2 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                  <th className="w-[7%] px-2 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     
                   </th>
                 </tr>
@@ -562,19 +603,22 @@ const Foods = () => {
                       {food.serving_size}
                     </td>
                     <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
+                      {food.serving_weight_grams ? food.serving_weight_grams : '—'}
+                    </td>
+                    <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
                       {food.calories_per_serving}
-                    </td>
-                    <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
-                      {food.protein_per_serving}g
-                    </td>
-                    <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
-                      {food.carbs_per_serving}g
                     </td>
                     <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
                       {food.fat_per_serving}g
                     </td>
                     <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
+                      {food.carbs_per_serving}g
+                    </td>
+                    <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
                       {food.fiber_per_serving}g
+                    </td>
+                    <td className="px-2 py-3 text-sm text-gray-900 dark:text-gray-300">
+                      {food.protein_per_serving}g
                     </td>
                     <td className="px-2 py-3">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -657,10 +701,11 @@ const Foods = () => {
 
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-700 dark:text-gray-300">
                     <div>Cal: {food.calories_per_serving}</div>
-                    <div>Protein: {food.protein_per_serving}g</div>
-                    <div>Carbs: {food.carbs_per_serving}g</div>
                     <div>Fat: {food.fat_per_serving}g</div>
+                    <div>Carbs: {food.carbs_per_serving}g</div>
                     <div>Fiber: {food.fiber_per_serving}g</div>
+                    <div>Protein: {food.protein_per_serving}g</div>
+                    <div>Weight: {food.serving_weight_grams ? food.serving_weight_grams + 'g' : '—'}</div>
                   </div>
 
                   <div className="mt-3 flex items-center gap-3">

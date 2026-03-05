@@ -210,6 +210,7 @@ db.serialize(() => {
     name TEXT NOT NULL,
     brand TEXT,
     serving_size TEXT NOT NULL,
+    serving_weight_grams REAL,
     calories_per_serving INTEGER NOT NULL,
     protein_per_serving REAL NOT NULL,
     carbs_per_serving REAL NOT NULL,
@@ -883,15 +884,15 @@ app.get('/api/foods/all', (req, res) => {
 app.post('/api/foods', (req, res) => {
   if (!req.oidc.isAuthenticated()) return res.status(401).send();
   const userId = req.appSession.local_user_id;
-  const { name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving } = req.body;
+  const { name, brand, serving_size, serving_weight_grams, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving } = req.body;
   const isMissing = (v) => v === undefined || v === null || v === '';
   
-  if (!name || !serving_size || isMissing(calories_per_serving) || isMissing(protein_per_serving) || isMissing(carbs_per_serving) || isMissing(fat_per_serving)) {
-    return res.status(400).json({ error: 'All nutrition fields are required' });
+  if (!name || !serving_size || isMissing(serving_weight_grams) || isMissing(calories_per_serving) || isMissing(protein_per_serving) || isMissing(carbs_per_serving) || isMissing(fat_per_serving)) {
+    return res.status(400).json({ error: 'All nutrition fields and serving weight are required' });
   }
 
-  db.run('INSERT INTO foods (user_id, name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [userId, name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving || 0], function(err) {
+  db.run('INSERT INTO foods (user_id, name, brand, serving_size, serving_weight_grams, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [userId, name, brand, serving_size, serving_weight_grams, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving || 0], function(err) {
     if (err) {
       return res.status(500).json({ error: 'Failed to create food' });
     }
@@ -904,6 +905,7 @@ app.post('/api/foods', (req, res) => {
         name,
         brand,
         serving_size,
+        serving_weight_grams,
         calories_per_serving,
         protein_per_serving,
         carbs_per_serving,
@@ -918,11 +920,11 @@ app.put('/api/foods/:id', (req, res) => {
   if (!req.oidc.isAuthenticated()) return res.status(401).send();
   const userId = req.appSession.local_user_id;
   const { id } = req.params;
-  const { name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving } = req.body;
+  const { name, brand, serving_size, serving_weight_grams, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving } = req.body;
   const isMissing = (v) => v === undefined || v === null || v === '';
   
-  if (!name || !serving_size || isMissing(calories_per_serving) || isMissing(protein_per_serving) || isMissing(carbs_per_serving) || isMissing(fat_per_serving)) {
-    return res.status(400).json({ error: 'All nutrition fields are required' });
+  if (!name || !serving_size || isMissing(serving_weight_grams) || isMissing(calories_per_serving) || isMissing(protein_per_serving) || isMissing(carbs_per_serving) || isMissing(fat_per_serving)) {
+    return res.status(400).json({ error: 'All nutrition fields and serving weight are required' });
   }
 
   // First verify the food belongs to the user (can't edit common foods)
@@ -934,8 +936,8 @@ app.put('/api/foods/:id', (req, res) => {
       return res.status(404).json({ error: 'Food not found or you do not have permission to edit it' });
     }
 
-    db.run('UPDATE foods SET name = ?, brand = ?, serving_size = ?, calories_per_serving = ?, protein_per_serving = ?, carbs_per_serving = ?, fat_per_serving = ?, fiber_per_serving = ? WHERE id = ? AND user_id = ?',
-      [name, brand, serving_size, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving || 0, id, userId], function(err) {
+    db.run('UPDATE foods SET name = ?, brand = ?, serving_size = ?, serving_weight_grams = ?, calories_per_serving = ?, protein_per_serving = ?, carbs_per_serving = ?, fat_per_serving = ?, fiber_per_serving = ? WHERE id = ? AND user_id = ?',
+      [name, brand, serving_size, serving_weight_grams, calories_per_serving, protein_per_serving, carbs_per_serving, fat_per_serving, fiber_per_serving || 0, id, userId], function(err) {
       if (err) {
         return res.status(500).json({ error: 'Failed to update food' });
       }
@@ -948,6 +950,7 @@ app.put('/api/foods/:id', (req, res) => {
           name,
           brand,
           serving_size,
+          serving_weight_grams,
           calories_per_serving,
           protein_per_serving,
           carbs_per_serving,
@@ -2452,6 +2455,7 @@ JSON ONLY:`;
                 quantity: suggestion.quantity,
                 name: suggestion.name,
                 serving_size: suggestion.serving_size,
+                serving_weight_grams: suggestion.serving_weight_grams || null,
                 calories: Math.round(suggestion.calories * suggestion.quantity),
                 protein: parseFloat((suggestion.protein * suggestion.quantity).toFixed(1)),
                 carbs: parseFloat((suggestion.carbs * suggestion.quantity).toFixed(1)),
@@ -2470,6 +2474,7 @@ JSON ONLY:`;
                 quantity: suggestion.quantity,
                 name: lf.name,
                 serving_size: '1 serving',
+                serving_weight_grams: lf.serving_weight_grams || null,
                 calories: Math.round((lf.calories_per_serving || 0) * suggestion.quantity),
                 protein: parseFloat(((lf.protein_per_serving || 0) * suggestion.quantity).toFixed(1)),
                 carbs: parseFloat(((lf.carbs_per_serving || 0) * suggestion.quantity).toFixed(1)),
@@ -2485,6 +2490,7 @@ JSON ONLY:`;
                 quantity: suggestion.quantity,
                 name: f.name,
                 serving_size: f.serving_size,
+                serving_weight_grams: f.serving_weight_grams || null,
                 calories: Math.round((f.calories_per_serving || 0) * suggestion.quantity),
                 protein: parseFloat(((f.protein_per_serving || 0) * suggestion.quantity).toFixed(1)),
                 carbs: parseFloat(((f.carbs_per_serving || 0) * suggestion.quantity).toFixed(1)),

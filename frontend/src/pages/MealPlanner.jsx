@@ -32,6 +32,10 @@ const MealPlanner = () => {
   const [aiTotals, setAiTotals] = useState(null);
   const [showAISuggestions, setShowAISuggestions] = useState(false);
   const [selectedSuggestions, setSelectedSuggestions] = useState({}); // { mealId: [indices] }
+  const [adjustedSuggestionGrams, setAdjustedSuggestionGrams] = useState({}); // { "mealId-suggestionIndex": adjustedGrams }
+  const [adjustedManualFoodGrams, setAdjustedManualFoodGrams] = useState({}); // { "foodId-isLinked": adjustedGrams }
+  const [adjustedManualFoodMode, setAdjustedManualFoodMode] = useState({}); // { "foodId-isLinked": 'servings' | 'grams' }
+  const [manualFoodServings, setManualFoodServings] = useState({}); // { "foodId-isLinked": servingQuantity }
   const [aiDebugPrompt, setAiDebugPrompt] = useState('');
   const [aiRawResponse, setAiRawResponse] = useState('');
   
@@ -79,6 +83,33 @@ const MealPlanner = () => {
       }
     }
   }, []);
+
+  // Helper to calculate adjusted nutrition based on grams ratio
+  const getAdjustedSuggestion = (suggestion, index, mealId) => {
+    const keyStr = `${mealId}-${index}`;
+    const adjustedGrams = adjustedSuggestionGrams[keyStr];
+    const originalServingGrams = suggestion.serving_weight_grams || 100; // Default to 100 if not available
+    
+    if (!adjustedGrams || adjustedGrams === originalServingGrams) {
+      return {
+        ...suggestion,
+        adjustedGrams: null,
+        ratio: 1
+      };
+    }
+    
+    const ratio = adjustedGrams / originalServingGrams;
+    return {
+      ...suggestion,
+      adjustedGrams,
+      ratio,
+      calories: Math.round(suggestion.calories * ratio),
+      protein: parseFloat((suggestion.protein * ratio).toFixed(1)),
+      carbs: parseFloat((suggestion.carbs * ratio).toFixed(1)),
+      fat: parseFloat((suggestion.fat * ratio).toFixed(1)),
+      fiber: parseFloat((suggestion.fiber * ratio).toFixed(1))
+    };
+  };
 
   // Load meal planner data on mount and when date changes
   useEffect(() => {
@@ -144,22 +175,33 @@ const MealPlanner = () => {
     }
   };
 
-  const handleAddFoodToMeal = async (foodId, quantity) => {
+  const handleAddFoodToMeal = async (foodId, quantity, food) => {
     if (!selectedMeal) {
       setMessage('Please select a meal first');
       return;
     }
+
+    const keyStr = `${foodId}-false`;
+    const adjustedGrams = adjustedManualFoodGrams[keyStr];
+    const originalServingGrams = food?.serving_weight_grams || 100;
+    const ratio = adjustedGrams ? adjustedGrams / originalServingGrams : 1;
+    const finalQuantity = quantity * ratio;
 
     try {
       await api.post('/meal-plans', {
         date: currentDate,
         meal_id: selectedMeal.id,
         food_id: foodId,
-        quantity: quantity
+        quantity: finalQuantity
       });
 
       setMessage('Food added to meal successfully');
       setShowAddFood(false);
+      setAdjustedManualFoodGrams(prev => {
+        const updated = { ...prev };
+        delete updated[keyStr];
+        return updated;
+      });
       fetchData();
     } catch (error) {
       setMessage('Failed to add food to meal');
@@ -173,6 +215,12 @@ const MealPlanner = () => {
       return;
     }
 
+    const keyStr = `${linkedFood.id}-true`;
+    const adjustedGrams = adjustedManualFoodGrams[keyStr];
+    const originalServingGrams = linkedFood?.serving_weight_grams || 100;
+    const ratio = adjustedGrams ? adjustedGrams / originalServingGrams : 1;
+    const finalQuantity = quantity * ratio;
+
     const components = Array.isArray(linkedFood?.components) ? linkedFood.components : [];
     const validComponents = components.filter(c => c.id);
     if (validComponents.length === 0) {
@@ -182,7 +230,7 @@ const MealPlanner = () => {
 
     try {
       await Promise.all(validComponents.map(comp => {
-        const componentQuantity = (comp.quantity || 1) * (quantity || 1);
+        const componentQuantity = (comp.quantity || 1) * finalQuantity;
         return api.post('/meal-plans', {
           date: currentDate,
           meal_id: selectedMeal.id,
@@ -193,6 +241,11 @@ const MealPlanner = () => {
 
       setMessage('Linked food added to meal successfully');
       setShowAddFood(false);
+      setAdjustedManualFoodGrams(prev => {
+        const updated = { ...prev };
+        delete updated[keyStr];
+        return updated;
+      });
       fetchData();
     } catch (error) {
       console.error('Failed to add linked food to meal:', error);
@@ -476,6 +529,8 @@ const MealPlanner = () => {
       
       for (const index of indicesToAdd) {
         const suggestion = suggestionsToUse[index];
+        const adjusted = getAdjustedSuggestion(suggestion, index, mealIdToUse);
+        const ratio = adjusted.ratio || 1;
 
         // New food suggestion path
         if (suggestion.is_new) {
@@ -483,11 +538,12 @@ const MealPlanner = () => {
             name: suggestion.name,
             brand: '',
             serving_size: suggestion.serving_size,
-            calories_per_serving: Math.round(suggestion.calories / suggestion.quantity),
-            protein_per_serving: Number((suggestion.protein / suggestion.quantity).toFixed(1)),
-            carbs_per_serving: Number((suggestion.carbs / suggestion.quantity).toFixed(1)),
-            fat_per_serving: Number((suggestion.fat / suggestion.quantity).toFixed(1)),
-            fiber_per_serving: Number((suggestion.fiber / suggestion.quantity).toFixed(1))
+            serving_weight_grams: adjusted.adjustedGrams || suggestion.serving_weight_grams || 100,
+            calories_per_serving: Math.round((suggestion.calories / suggestion.quantity) * ratio),
+            protein_per_serving: Number(((suggestion.protein / suggestion.quantity) * ratio).toFixed(1)),
+            carbs_per_serving: Number(((suggestion.carbs / suggestion.quantity) * ratio).toFixed(1)),
+            fat_per_serving: Number(((suggestion.fat / suggestion.quantity) * ratio).toFixed(1)),
+            fiber_per_serving: Number(((suggestion.fiber / suggestion.quantity) * ratio).toFixed(1))
           });
           const newFoodId = newFoodRes?.food?.id;
           if (!newFoodId) throw new Error('Failed to create new food');
@@ -496,7 +552,7 @@ const MealPlanner = () => {
             date: currentDate,
             meal_id: mealIdToUse,
             food_id: parseInt(newFoodId),
-            quantity: suggestion.quantity
+            quantity: suggestion.quantity * ratio
           });
           continue;
         }
@@ -509,7 +565,7 @@ const MealPlanner = () => {
             date: currentDate,
             meal_id: mealIdToUse,
             linked_food_id: linkedId,
-            quantity: suggestion.quantity
+            quantity: suggestion.quantity * ratio
           });
           continue;
         }
@@ -519,7 +575,7 @@ const MealPlanner = () => {
           date: currentDate,
           meal_id: mealIdToUse,
           food_id: parseInt(foodId),
-          quantity: suggestion.quantity
+          quantity: suggestion.quantity * ratio
         });
       }
 
@@ -1017,59 +1073,111 @@ const MealPlanner = () => {
                     const bVal = b[foodSortBy] || 0;
                     return bVal - aVal; // Descending order for numeric values
                   })
-                  .map(food => (
-                  <div key={`${food.is_linked_food ? 'linked-' : ''}${food.id}`} className="border border-gray-200 dark:border-gray-600 rounded-lg p-3">
-                    <div className="flex items-start justify-between mb-1">
-                      <div>
-                        <h4 className="font-medium text-gray-900 dark:text-white">{food.name}</h4>
-                        {food.brand && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400">{food.brand}</p>
-                        )}
+                  .map(food => {
+                    const keyStr = `${food.id}-${food.is_linked_food ? 'true' : 'false'}`;
+                    const originalServingGrams = food.serving_weight_grams || 100;
+                    const currentMode = adjustedManualFoodMode[keyStr] || 'grams';
+                    const currentServings = manualFoodServings[keyStr] !== undefined ? manualFoodServings[keyStr] : 1;
+                    const currentGrams = adjustedManualFoodGrams[keyStr] !== undefined ? adjustedManualFoodGrams[keyStr] : originalServingGrams;
+                    const displayValue = currentMode === 'servings' ? currentServings : currentGrams;
+                    const isAdjusted = currentGrams !== originalServingGrams;
+                    const ratio = currentGrams / originalServingGrams;
+                    
+                    return (
+                      <div key={`${food.is_linked_food ? 'linked-' : ''}${food.id}`} className="border border-gray-200 dark:border-gray-600 rounded-lg p-3">
+                        <div className="flex items-start justify-between mb-1">
+                          <div>
+                            <h4 className="font-medium text-gray-900 dark:text-white">{food.name}</h4>
+                            {food.brand && (
+                              <p className="text-xs text-gray-500 dark:text-gray-400">{food.brand}</p>
+                            )}
+                          </div>
+                          {food.is_linked_food && (
+                            <span className="text-[11px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full dark:bg-purple-900 dark:text-purple-200">
+                              Linked
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-600 dark:text-gray-400 mb-2 space-y-1">
+                          <div className="font-medium">
+                            <span className={isAdjusted ? 'line-through' : ''}>{food.serving_size}</span>
+                            {originalServingGrams && <span className="ml-2 not-italic">({originalServingGrams}g)</span>}
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-2">
+                            <div>Cal: {Math.round(food.calories_per_serving * ratio)}</div>
+                            <div>P: {(food.protein_per_serving * ratio).toFixed(1)}g</div>
+                            <div>C: {(food.carbs_per_serving * ratio).toFixed(1)}g</div>
+                            <div>F: {(food.fat_per_serving * ratio).toFixed(1)}g</div>
+                            {food.fiber_per_serving !== undefined && food.fiber_per_serving !== null && (
+                              <div>Fiber: {(food.fiber_per_serving * ratio).toFixed(1)}g</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={currentMode}
+                              onChange={(e) => {
+                                const newMode = e.target.value;
+                                setAdjustedManualFoodMode(prev => ({
+                                  ...prev,
+                                  [keyStr]: newMode
+                                }));
+                              }}
+                              className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                            >
+                              <option value="servings">Servings</option>
+                              <option value="grams">Grams</option>
+                            </select>
+                            <input
+                              type="number"
+                              min="0.1"
+                              step={currentMode === 'servings' ? '0.1' : '0.1'}
+                              value={displayValue}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value);
+                                if (isNaN(val)) return;
+                                
+                                if (currentMode === 'servings') {
+                                  setManualFoodServings(prev => ({
+                                    ...prev,
+                                    [keyStr]: val
+                                  }));
+                                  setAdjustedManualFoodGrams(prev => ({
+                                    ...prev,
+                                    [keyStr]: val * originalServingGrams
+                                  }));
+                                } else {
+                                  setAdjustedManualFoodGrams(prev => ({
+                                    ...prev,
+                                    [keyStr]: val
+                                  }));
+                                  setManualFoodServings(prev => ({
+                                    ...prev,
+                                    [keyStr]: val / originalServingGrams
+                                  }));
+                                }
+                              }}
+                              className="flex-1 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                            />
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (food.is_linked_food) {
+                              handleAddLinkedFoodToMeal(food, currentServings);
+                            } else {
+                              handleAddFoodToMeal(food.id, currentServings, food);
+                            }
+                          }}
+                          className="w-full mt-2 px-2 py-1 bg-green-600 text-white text-sm rounded
+                                   hover:bg-green-700 transition-colors duration-200"
+                        >
+                          Add
+                        </button>
                       </div>
-                      {food.is_linked_food && (
-                        <span className="text-[11px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full dark:bg-purple-900 dark:text-purple-200">
-                          Linked
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-gray-600 dark:text-gray-400 mb-2 space-y-1">
-                      <div className="font-medium">{food.serving_size}</div>
-                      <div className="grid grid-cols-2 gap-x-2">
-                        <div>Cal: {food.calories_per_serving}</div>
-                        <div>P: {food.protein_per_serving}g</div>
-                        <div>C: {food.carbs_per_serving}g</div>
-                        <div>F: {food.fat_per_serving}g</div>
-                        {food.fiber_per_serving !== undefined && food.fiber_per_serving !== null && (
-                          <div>Fiber: {food.fiber_per_serving}g</div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="number"
-                        min="0.1"
-                        step="0.1"
-                        defaultValue="1"
-                        className="w-20 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded 
-                                 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
-                      />
-                      <button
-                        onClick={(e) => {
-                          const quantity = parseFloat(e.target.previousElementSibling.value) || 1;
-                          if (food.is_linked_food) {
-                            handleAddLinkedFoodToMeal(food, quantity);
-                          } else {
-                            handleAddFoodToMeal(food.id, quantity);
-                          }
-                        }}
-                        className="flex-1 px-2 py-1 bg-green-600 text-white text-sm rounded
-                                 hover:bg-green-700 transition-colors duration-200"
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                    );
+                  })}
               </div>
               <div className="flex justify-end mt-4">
                 <button
@@ -1226,7 +1334,7 @@ const MealPlanner = () => {
                               className="text-gray-600 dark:text-gray-400 ml-2 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                               title="Click to edit servings"
                             >
-                              {plan.quantity}x {plan.serving_size}
+                              {(plan.quantity * (plan.serving_weight_grams || 100)).toFixed(1)}g
                             </button>
                           </div>
                           <div className="flex items-center gap-3">
@@ -1268,7 +1376,7 @@ const MealPlanner = () => {
                                 className="text-xs text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
                                 title="Click to edit servings"
                               >
-                                {plan.quantity}x {plan.serving_size}
+                                {(plan.quantity * (plan.serving_weight_grams || 100)).toFixed(1)}g
                               </button>
                             </div>
                             <div className="flex items-center gap-2">
@@ -1582,44 +1690,72 @@ const MealPlanner = () => {
                       Suggested Foods
                     </h4>
                     <div className="space-y-3">
-                      {aiSuggestions.map((suggestion, index) => (
-                        <div key={index} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-700">
-                          <label className="flex items-start gap-3 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={(selectedSuggestions[selectedMeal?.id] || []).includes(index)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedSuggestions(prev => ({
-                                    ...prev,
-                                    [selectedMeal.id]: [...(prev[selectedMeal.id] || []), index]
-                                  }));
-                                } else {
-                                  setSelectedSuggestions(prev => ({
-                                    ...prev,
-                                    [selectedMeal.id]: (prev[selectedMeal.id] || []).filter(i => i !== index)
-                                  }));
-                                }
-                              }}
-                              className="mt-1 w-4 h-4 rounded"
-                            />
-                            <div className="flex-1">
-                              <div className="font-medium text-gray-900 dark:text-white">
-                                {suggestion.name}
+                      {aiSuggestions.map((suggestion, index) => {
+                        const adjusted = getAdjustedSuggestion(suggestion, index, selectedMeal?.id);
+                        const keyStr = `${selectedMeal?.id}-${index}`;
+                        const currentAdjustedGrams = adjustedSuggestionGrams[keyStr];
+                        const isAdjusted = currentAdjustedGrams && currentAdjustedGrams !== suggestion.serving_weight_grams;
+                        const originalServingGrams = suggestion.serving_weight_grams || 100;
+                        
+                        return (
+                          <div key={index} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-700">
+                            <label className="flex items-start gap-3 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={(selectedSuggestions[selectedMeal?.id] || []).includes(index)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedSuggestions(prev => ({
+                                      ...prev,
+                                      [selectedMeal.id]: [...(prev[selectedMeal.id] || []), index]
+                                    }));
+                                  } else {
+                                    setSelectedSuggestions(prev => ({
+                                      ...prev,
+                                      [selectedMeal.id]: (prev[selectedMeal.id] || []).filter(i => i !== index)
+                                    }));
+                                  }
+                                }}
+                                className="mt-1 w-4 h-4 rounded"
+                              />
+                              <div className="flex-1">
+                                <div className="font-medium text-gray-900 dark:text-white">
+                                  {suggestion.name}
+                                </div>
+                                <div className="text-sm text-gray-600 dark:text-gray-400">
+                                  <span>{suggestion.quantity}x</span>
+                                  <span className={isAdjusted ? 'line-through ml-2' : 'ml-2'}>
+                                    {suggestion.serving_size}
+                                  </span>
+                                </div>
+                                <div className="mt-2 flex items-center gap-2">
+                                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">Grams:</label>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    value={currentAdjustedGrams !== undefined ? currentAdjustedGrams : originalServingGrams}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || originalServingGrams;
+                                      setAdjustedSuggestionGrams(prev => ({
+                                        ...prev,
+                                        [keyStr]: val
+                                      }));
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-20 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                  />
+                                </div>
+                                {suggestion.reason && (
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 italic">{suggestion.reason}</div>
+                                )}
+                                <div className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                                  {Math.round(adjusted.calories)} cal | P: {adjusted.protein}g | C: {adjusted.carbs}g | F: {adjusted.fat}g | Fiber: {adjusted.fiber}g
+                                </div>
                               </div>
-                              <div className="text-sm text-gray-600 dark:text-gray-400">
-                                {suggestion.quantity}x {suggestion.serving_size}
-                              </div>
-                              {suggestion.reason && (
-                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 italic">{suggestion.reason}</div>
-                              )}
-                              <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                                {Math.round(suggestion.calories)} cal | P: {suggestion.protein}g | C: {suggestion.carbs}g | F: {suggestion.fat}g | Fiber: {suggestion.fiber}g
-                              </div>
-                            </div>
-                          </label>
-                        </div>
-                      ))}
+                            </label>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -1632,25 +1768,43 @@ const MealPlanner = () => {
                         <div>
                           <span className="text-gray-600 dark:text-gray-400">Calories</span>
                           <div className="font-bold text-gray-900 dark:text-white">
-                            {Math.round(aiSuggestions
-                              .filter((_, i) => (selectedSuggestions[selectedMeal?.id] || []).includes(i))
-                              .reduce((sum, s) => sum + s.calories, 0))}
+                            {(() => {
+                              let sum = 0;
+                              const indices = selectedSuggestions[selectedMeal?.id] || [];
+                              for (const idx of indices) {
+                                const adjusted = getAdjustedSuggestion(aiSuggestions[idx], idx, selectedMeal?.id);
+                                sum += adjusted.calories;
+                              }
+                              return Math.round(sum);
+                            })()}
                           </div>
                         </div>
                         <div>
                           <span className="text-gray-600 dark:text-gray-400">Protein</span>
                           <div className="font-bold text-gray-900 dark:text-white">
-                            {aiSuggestions
-                              .filter((_, i) => (selectedSuggestions[selectedMeal?.id] || []).includes(i))
-                              .reduce((sum, s) => sum + s.protein, 0).toFixed(1)}g
+                            {(() => {
+                              let sum = 0;
+                              const indices = selectedSuggestions[selectedMeal?.id] || [];
+                              for (const idx of indices) {
+                                const adjusted = getAdjustedSuggestion(aiSuggestions[idx], idx, selectedMeal?.id);
+                                sum += adjusted.protein;
+                              }
+                              return sum.toFixed(1);
+                            })()}g
                           </div>
                         </div>
                         <div>
                           <span className="text-gray-600 dark:text-gray-400">Carbs</span>
                           <div className="font-bold text-gray-900 dark:text-white">
-                            {aiSuggestions
-                              .filter((_, i) => (selectedSuggestions[selectedMeal?.id] || []).includes(i))
-                              .reduce((sum, s) => sum + s.carbs, 0).toFixed(1)}g
+                            {(() => {
+                              let sum = 0;
+                              const indices = selectedSuggestions[selectedMeal?.id] || [];
+                              for (const idx of indices) {
+                                const adjusted = getAdjustedSuggestion(aiSuggestions[idx], idx, selectedMeal?.id);
+                                sum += adjusted.carbs;
+                              }
+                              return sum.toFixed(1);
+                            })()}g
                           </div>
                         </div>
                       </div>
@@ -1668,6 +1822,15 @@ const MealPlanner = () => {
                     setSelectedSuggestions(prev => {
                       const updated = { ...prev };
                       delete updated[selectedMeal?.id];
+                      return updated;
+                    });
+                    setAdjustedSuggestionGrams(prev => {
+                      const updated = { ...prev };
+                      Object.keys(updated).forEach(key => {
+                        if (key.startsWith(`${selectedMeal?.id}-`)) {
+                          delete updated[key];
+                        }
+                      });
                       return updated;
                     });
                     setTargetCalories('');
