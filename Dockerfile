@@ -3,7 +3,10 @@
 # ================================
 FROM node:24-alpine AS frontend-builder
 
-ARG VITE_API_BASE_URL=/api
+ARG VITE_API_BASE_URL
+ARG VITE_BACKEND_URL
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL:-/api}
+ENV VITE_BACKEND_URL=${VITE_BACKEND_URL}
 
 WORKDIR /app/frontend
 
@@ -15,7 +18,7 @@ RUN npm ci
 COPY frontend/ ./
 
 # Build the frontend with the API URL (pass as env var for Vite to pick up)
-RUN VITE_API_BASE_URL=${VITE_API_BASE_URL} npm run build
+RUN npm run build
 
 # ================================
 # Stage 2: Setup Backend Dependencies

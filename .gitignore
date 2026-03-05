@@ -75,6 +75,7 @@ backend/macro_meal_planner.db.*
 # Framework-specific (optional safety)
 .vercel/
 .netlify/
+public/
 
 # Allow lockfiles (DO NOT ignore)
 # package-lock.json

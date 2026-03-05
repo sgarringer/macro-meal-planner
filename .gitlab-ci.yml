@@ -43,9 +43,7 @@ build:
       --destination "${CI_REGISTRY_IMAGE}:${VERSION}"
       --destination "${CI_REGISTRY_IMAGE}:latest"
       --build-arg "VITE_API_BASE_URL=${VITE_API_BASE_URL}"
-      --build-arg "JWT_SECRET=${JWT_SECRET}"
-      --build-arg "ADMIN_USERNAME=${ADMIN_USERNAME}"
-      --build-arg "ADMIN_PASSWORD=${ADMIN_PASSWORD}"
+      --build-arg "VITE_BACKEND_URL=${VITE_BACKEND_URL}"
       --insecure
       --skip-tls-verify
   rules:
