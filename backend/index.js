@@ -67,6 +67,12 @@ const config = {
     response_type: 'code',
     scope: 'openid profile email', // Explicitly ask for email
   },
+  routes: {
+    login: '/api/login',
+    logout: '/api/logout',
+    callback: '/api/callback',
+    postLogoutRedirect: '/', // Where to go after logoff
+  },
   afterCallback: async (req, res, session, decodedToken) => {
     return new Promise((resolve, reject) => {
       // sub is the unique ID from Auth0, always present

@@ -41,13 +41,13 @@ export const AuthProvider = ({ children }) => {
 
   // Login now just triggers a redirect to the backend
   const login = () => {
-    import.meta.env.VITE_BACKEND_URL
-    window.location.href = `${import.meta.env.VITE_BACKEND_URL}/login?returnTo=${import.meta.env.VITE_FRONTEND_URL}/dashboard`;
+    import.meta.env.VITE_API_BASE_URL
+    window.location.href = `${import.meta.env.VITE_API_BASE_URL}/login?returnTo=${import.meta.env.VITE_FRONTEND_URL}/dashboard`;
   };
 
   // Logout triggers the backend logout flow
   const logout = () => {
-      window.location.href = `${import.meta.env.VITE_BACKEND_URL}/logout?returnTo=${import.meta.env.VITE_FRONTEND_URL}/`;
+      window.location.href = `${import.meta.env.VITE_API_BASE_URL}/logout?returnTo=${import.meta.env.VITE_FRONTEND_URL}/`;
     dispatch({ type: 'LOGOUT' });
   };
 
