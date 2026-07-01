@@ -6,7 +6,7 @@ const commonFoods = [
   // Proteins
   { name: 'Chicken Breast', brand: null, serving_size: '100g', serving_weight_grams: 100, calories_per_serving: 165, protein_per_serving: 31, carbs_per_serving: 0, fat_per_serving: 3.6, fiber_per_serving: 0, is_common: 1 },
   { name: 'Salmon', brand: null, serving_size: '100g', serving_weight_grams: 100, calories_per_serving: 208, protein_per_serving: 20, carbs_per_serving: 0, fat_per_serving: 13, fiber_per_serving: 0, is_common: 1 },
-  { name: 'Eggs', brand: null, serving_size: '2 large', serving_weight_grams: 100, calories_per_serving: 155, protein_per_serving: 13, carbs_per_serving: 1.1, fat_per_serving: 11, fiber_per_serving: 0, is_common: 1 },
+  { name: 'Eggs', brand: null, serving_size: '1 large', serving_weight_grams: 50, calories_per_serving: 70, protein_per_serving: 6, carbs_per_serving: 0, fat_per_serving: 5, fiber_per_serving: 0, is_common: 1 },
   { name: 'Greek Yogurt', brand: null, serving_size: '1 cup', serving_weight_grams: 227, calories_per_serving: 100, protein_per_serving: 17, carbs_per_serving: 6, fat_per_serving: 0.7, fiber_per_serving: 0, is_common: 1 },
   { name: 'Tuna', brand: null, serving_size: '100g', serving_weight_grams: 100, calories_per_serving: 144, protein_per_serving: 30, carbs_per_serving: 0, fat_per_serving: 1, fiber_per_serving: 0, is_common: 1 },
   
